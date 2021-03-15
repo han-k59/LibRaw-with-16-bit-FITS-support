@@ -1,0 +1,23 @@
+   {Compile linux version under Linux:
+    git clone https://github.com/LibRaw/LibRaw.git
+    or
+    git clone https://github.com/han-k59/LibRaw-with-16-bit-FITS-support
+    cd LibRaw
+    autoreconf --install
+    ./configure
+     make
+
+
+     1) ./configure --enable-shared=no
+     2) make clean && make # to rebuild
+     This will remove shared (.so) libraries and will build static (.a) instead }
+
+
+   {In Linux using mingw cross-compiler to make Windows executables:
+    git clone https://github.com/LibRaw/LibRaw.git ^C
+    cd LibRaw
+    make -f Makefile.mingw CXX=x86_64-w64-mingw32-g++ CC=x86_64-w64-mingw32-gcc
+
+    To make it work edit the file Makefile.mingw and on third row change:
+    CFLAGS=-O3 -I. -w -static-libgcc -static-libstdc++
+    }  
