@@ -195,11 +195,13 @@ void LibRaw::write_ppm_tiff()
 	{
 	    if(imgdata.params.output_flags & LIBRAW_OUTPUT_FLAGS_PPMMETA)
 	      fprintf(ofp,
-              "P7\n# EXPTIME=%0.5f\n# TIMESTAMP=%d\n# ISOSPEED=%d\n"
-              "# APERTURE=%0.1f\n# FOCALLEN=%0.1f\n# MAKE=%s\n# MODEL=%s\n"
+              "P7\n# EXPTIME=%0.5f\n# TIMESTAMP=%d\n"
+              "# CCD-TEMP=%0.1f\n# CAM-TEMP=%0.1f\n"
+              "# ISOSPEED=%d\n# APERTURE=%0.1f\n# FOCALLEN=%0.1f\n# MAKE=%s\n# MODEL=%s\n"
               "WIDTH %d\nHEIGHT %d\nDEPTH %d\nMAXVAL %d\nTUPLTYPE %s\nENDHDR\n",
-              shutter, (int)timestamp, (int)iso_speed,aperture, 
-	      focal_len, make, model,
+              shutter, (int)timestamp,
+              imCommon.SensorTemperature, imCommon.CameraTemperature,
+              (int)iso_speed,aperture,focal_len, make, model,
 	      width, height, colors, (1 << output_bps) - 1, cdesc);
 	    else
             fprintf(
@@ -209,12 +211,15 @@ void LibRaw::write_ppm_tiff()
 	}
         else
 	{
-	    if(imgdata.params.output_flags & LIBRAW_OUTPUT_FLAGS_PPMMETA)
+	    if(imgdata.params.output_flags & LIBRAW_OUTPUT_FLAGS_PPMMETA) 
 	    	fprintf(ofp, "P%d\n# EXPTIME=%0.5f\n# TIMESTAMP=%d\n"
+		"# CCD-TEMP=%0.1f\n# CAM-TEMP=%0.1f\n"
 		"# ISOSPEED=%d\n# APERTURE=%0.1f\n# FOCALLEN=%0.1f\n"
 		"# MAKE=%s\n# MODEL=%s\n%d %d\n%d\n",
                 colors/2+5,
-		shutter, (int)timestamp, (int)iso_speed,aperture,focal_len,
+		shutter, (int)timestamp,
+                imCommon.SensorTemperature, imCommon.CameraTemperature,
+                (int)iso_speed,aperture,focal_len,
 		make,model,
 		width, height, (1 << output_bps)-1);
 	    else
