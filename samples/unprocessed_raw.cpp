@@ -289,7 +289,7 @@ int main(int ac, char *av[])
       sprintf(str,"EXPTIME = %020g                                                                       ",P2.shutter);
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
 
-      sprintf(str,"JD      = %14.5f                                                                      ",2440587.5+ (double)P2.timestamp/(24*60*60));//{convert to Julian Day by adding factor. Unix time is seconds since 1.1.1970}
+      sprintf(str,"JD      = %20.5f                                                                      ",2440587.5+ (double)P2.timestamp/(24*60*60));//{convert to Julian Day by adding factor. Unix time is seconds since 1.1.1970}
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
 
       if (P3.SensorTemperature>-999) {temperature=P3.SensorTemperature;}
