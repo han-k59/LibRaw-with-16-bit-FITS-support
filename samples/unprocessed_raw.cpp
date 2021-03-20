@@ -281,12 +281,12 @@ int main(int ac, char *av[])
       if (out_fits>1) //export full sensor
         { S.top_margin=0; S.left_margin=0;  }
 
-      strcpy(fits_header,"SIMPLE  =                    T / FITS header                            ");
+      strcpy(fits_header,"SIMPLE  =                    T / FITS header                                      ");
       fits_header[80]='\0'; // length should be exactly 80
 
-      strcpy(str,"BITPIX  =                   16 / Bits per entry                                 ");
+      strcpy(str,        "BITPIX  =                   16 / Bits per entry                                   ");
       str[80]='\0'; strcat(fits_header,str);//line 2. Length of each keyword record should be exactly 80
-      strcpy(str,"NAXIS   =                    2 / Number of dimensions                            ");
+      strcpy(str,        "NAXIS   =                    2 / Number of dimensions                             ");
       str[80]='\0'; strcat(fits_header,str);//line 3. Length of each keyword record should be exactly 80
 
       sprintf(str,"NAXIS1  = %020d                                                                       ",S.raw_width- S.left_margin );
