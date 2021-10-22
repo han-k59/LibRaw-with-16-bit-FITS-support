@@ -86,6 +86,7 @@ int main(int ac, char *av[])
 #define P2 RawProcessor.imgdata.other
 #define P3 RawProcessor.imgdata.makernotes.common
 #define exifLens RawProcessor.imgdata.lens
+#define C RawProcessor.imgdata.color
 
 
 #define OUT RawProcessor.imgdata.params
@@ -230,6 +231,31 @@ int main(int ac, char *av[])
 
       sprintf(str,"GAIN    = %020d                                                                       ",(int)P2.iso_speed);
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      
+      if (C.cblack[0] != 0)
+      {
+      sprintf(str,"PEDESTAL= %020d                                                                       ",(int)C.cblack[0]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      sprintf(str,"PEDESTA2= %020d                                                                       ",(int)C.cblack[1]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      sprintf(str,"PEDESTA3= %020d                                                                       ",(int)C.cblack[2]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      sprintf(str,"PEDESTA4= %020d                                                                       ",(int)C.cblack[3]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      }
+
+      if (C.linear_max[0] != 0)
+      {
+      sprintf(str,"DATAMAX = %020d                                                                       ",(int)C.linear_max[0]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      sprintf(str,"DATAMAX2= %020d                                                                       ",(int)C.linear_max[1]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      sprintf(str,"DATAMAX3= %020d                                                                       ",(int)C.linear_max[2]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      sprintf(str,"DATAMAX4= %020d                                                                       ",(int)C.linear_max[3]);
+      str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      }
+
 
       sprintf(str,"APERTURE= %020g                                                                       ",P2.aperture);
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
@@ -266,11 +292,14 @@ int main(int ac, char *av[])
         str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
       }
 
-      sprintf(str,"IMG_FLIP= %020d                                                                        ",S.flip);
+      sprintf(str,"IMG_FLIP= %020d                                                                        ",(int)S.flip);
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
 
       sprintf(str,"COMMENT raw conversion by LibRaw-with-16-bit-FITS-support. www.hnsky.org               ");
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
+      
+      
+      
 
 
       strcpy(str,"END                                                                                     ");
