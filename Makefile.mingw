@@ -1,6 +1,6 @@
 all: library all_samples
 
-CFLAGS=-O3  -I. -w
+CFLAGS=-O3 -I. -w -static-libgcc -static-libstdc++
 CC=gcc
 CXX=g++
 
