@@ -68,7 +68,7 @@ int main(int ac, char *av[])
   if (ac < 2)
   {
   usage:
-    printf("unprocessed_raw - LibRaw %s %d cameras supported. With FITS file support mod 2022-11-19\n"
+    printf("unprocessed_raw - LibRaw %s %d cameras supported. With FITS file support mod 2022-11-21\n"
            "Usage: %s [-q] [-A] [-g] [-s N] raw-files....\n"
            "\t-q - be quiet\n"
            "\t-s N - select Nth image in file (default=0)\n"
@@ -254,7 +254,7 @@ int main(int ac, char *av[])
       sprintf(str,"EXPTIME = %20G   / Exposure time in seconds                                             ",(double)P2.shutter);
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80
 
-      julianday= 2440587.5+ (double)P2.timestamp/(24.0*60.0*60.0)-(double)P2.shutter/(24.0*60.0*60.0);//Julian Day of begin exposure. Convert Unix (time is seconds since 1.1.1970) to Julian Day by adding a factor}
+      julianday= 2440587.5+ (double)P2.timestamp/(24.0*60.0*60.0);//Julian Day of begin exposure. Convert Unix (time is seconds since 1.1.1970) to Julian Day by adding a factor}
       sprintf(str,"JD      = %20.8f / [Julian Day] The start time of the exposure                           ",julianday);
       str[80]='\0'; strcat(fits_header,str);// Length of each keyword record should be exactly 80           x
 
