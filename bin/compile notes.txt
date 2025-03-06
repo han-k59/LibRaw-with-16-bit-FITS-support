@@ -34,4 +34,17 @@
        cd LibRaw-with-16-bit-FITS-support
        export LDADD=-mmacosx-version-min=10.10
        make -f Makefile.dist
-   
+
+       #############################################################################################
+  
+       Mac cross compile from X86_64 to silicon (M types ) processor
+
+       git clone https://github.com/han-k59/LibRaw-with-16-bit-FITS-support
+       or 
+       make clean -f Makefile.mingw # to clean up 
+
+
+       cd LibRaw-with-16-bit-FITS-support
+       export LDADD=-mmacosx-version-min=10.10
+       make -f Makefile.dist-m1
+
