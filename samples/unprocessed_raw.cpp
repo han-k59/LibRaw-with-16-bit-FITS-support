@@ -1,6 +1,6 @@
 /* -*- C++ -*-
  * File: unprocessed_raw.cpp
- * Copyright 2009-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2009-2024 LibRaw LLC (info@libraw.org)
  * Created: Fri Jan 02, 2009
  * Modified for adding meta data to PPM file and FITS export. By Han Kleijn. Version see message
  *

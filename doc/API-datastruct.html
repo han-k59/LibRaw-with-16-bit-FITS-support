@@ -26,7 +26,9 @@
           <li><a href="#libraw_rawdata_t"> Structure libraw_rawdata_t: holds
               unpacked RAW data </a></li>
           <li><a href="#libraw_thumbnail_t"> Structure libraw_thumbnail_t:
-              Description of Thumbnail </a></li>
+              Description of extracted Thumbnail </a></li>
+          <li><a href="#libraw_thumbnail_list_t"> Structure
+              libraw_thumbnail_list_t: Description of file's thumbnail list</a></li>
           <li><a href="#libraw_lensinfo_t"> Structure libraw_lensinfo_t - lens
               data, extracted from EXIF/Makernotes </a></li>
           <li><a href="#libraw_raw_unpack_params_t"> Structure
@@ -114,7 +116,7 @@
       <dt><strong> libraw_thumbnail_t thumbnail; </strong></dt>
       <dd>Data structure containing information on the preview and the preview
         data themselves. All fields of this structure but thumbnail itself are
-        filled when open_file() is called. Thumbnail readed by unpack_thumb()
+        filled when open_file() is called. Thumbnail read by unpack_thumb()
         call. The fields are described in detail <a href="#libraw_thumbnail_t">
           below </a> .</dd>
       <dt><strong> libraw_rawdata_t rawdata; </strong></dt>
@@ -213,15 +215,17 @@
         180-deg rotation; 5 if 90 deg counterclockwise, 6 if 90 deg clockwise).</dd>
       <dt><strong>libraw_raw_inset_crop_t raw_inset_crops[2];</strong></dt>
       <dd>(<strong>libraw_raw_inset_crop_t: </strong>ushort cleft, ctop,
-        cwidth, cheight;)<ul>
-        <li>item at[0] contains standard crop data parsed from camera metadata (DNG:
-          DefaultCrop* tags, other formats: vendor specific tags)</li>
-        <li>item at [1] is 'user crop', in particular:
-       <br/>- set by DNG  DefaultUserCrop tag
-       <br/>- or set via raw aspect ratio tags (e.g. 16:9 aspect on Fujifilm cameras)
-          raw_inset_crops[1] is filled only if aspect ratio tags provides different
-          aspect ratio compared to raw_inset_crops[0].
-        </li></ul></dd>
+        cwidth, cheight;)
+        <ul>
+          <li>item at[0] contains standard crop data parsed from camera metadata
+            (DNG: DefaultCrop* tags, other formats: vendor specific tags)</li>
+          <li>item at [1] is 'user crop', in particular: <br>
+            - set by DNG DefaultUserCrop tag <br>
+            - or set via raw aspect ratio tags (e.g. 16:9 aspect on Fujifilm
+            cameras) raw_inset_crops[1] is filled only if aspect ratio tags
+            provides different aspect ratio compared to raw_inset_crops[0]. </li>
+        </ul>
+      </dd>
     </dl>
     <p><a name="libraw_colordata_t"></a></p>
     <h3>Structure libraw_colordata_t: Color Information</h3>
@@ -238,7 +242,7 @@
         black has been subtracted at the unpacking stage or by the camera
         itself), calculated at the unpacking stage, read from the RAW file, or
         hardcoded.</dd>
-      <dt><strong> unsigned cblack[4102]; </strong></dt>
+      <dt><strong> unsigned cblack[4104]; </strong></dt>
       <dd>Per-channel black level correction. First 4 values are per-channel
         correction, next two are black level pattern block size, than
         cblack[4]*cblack[5] correction values (for indexes
@@ -280,7 +284,7 @@
       <dt><strong> float rgb_cam[3][4]; </strong></dt>
       <dd>Camera to sRGB conversion matrix</dd>
       <dt><strong> float ccm[3][4]; </strong></dt>
-      <dd>Camera color correction matrix readed from file metadata (uniform
+      <dd>Camera color correction matrix read from file metadata (uniform
         matrix if no such data in file)</dd>
       <dt><strong> ph1_t phase_one_data; </strong></dt>
       <dd>Color data block that is read for Phase One cameras.</dd>
@@ -298,10 +302,10 @@
       <dt><strong> unsigned profile_length; </strong></dt>
       <dd>Length of ICC profile in bytes.</dd>
       <dt><strong> unsigned black_stat[8]; </strong></dt>
-      <dd>Black level statistics if calcluated from masked area: 4 sum of pixel
+      <dd>Black level statistics if calculated from masked area: 4 sum of pixel
         values, than 4 pixel counts (per channel).</dd>
       <dt><strong> libraw_dng_color_t dng_color[2]; </strong></dt>
-      <dd>Color data read from DNG: illuminant, calbiration matrix and color
+      <dd>Color data read from DNG: illuminant, calibration matrix and color
         matrix for two light sources. (see DNG specs for details).</dd>
       <dt><strong>libraw_dng_levels_t dng_levels</strong></dt>
       <dd>DNG black/white levels, analog balance, WB for active IFD. See DNG
@@ -351,7 +355,7 @@
     <h3>Structure libraw_rawdata_t: holds unpacked RAW data</h3>
     <p>Structure libraw_rawdata_t holds:</p>
     <ul>
-      <li>RAW-data from sensor, readed and unpacked by the <a href="API-CXX.html#unpack">
+      <li>RAW-data from sensor, read and unpacked by the <a href="API-CXX.html#unpack">
           unpack() </a> call.</li>
       <li>"backup" copy of color and over data modified during postprocessing.
         When postprocessing calls repeats, the needed data is restored from this
@@ -395,6 +399,41 @@
       <dt><strong> char *thumb; </strong></dt>
       <dd>Pointer to thumbmail, extracted from the data file.</dd>
     </dl>
+    <p><a name="libraw_thumbnail_list_t"></a></p>
+    <h3>Structure libraw_thumbnail_list_t: thumbnails present in the RAW file</h3>
+    <p>libraw_thumbnail_list_t holds list of thumbnails (previews) present in
+      RAW file.</p>
+    <h4>Data fields:</h4>
+    <dl>
+      <dt><strong> int thumbcount;</strong></dt>
+      <dd>Thumbnail count</dd>
+      <dt><strong>libraw_thumbnail_item_t thumblist[LIBRAW_THUMBNAIL_MAXCOUNT];</strong></dt>
+      <dd>Array of <b>libraw_thumbnail_item_t</b>, one for each thumbnail:
+        <dl>
+          <dt>enum LibRaw_internal_thumbnail_formats tformat</dt>
+          <dd>Internal thumbnail format (this field stores thumbnail decoder
+            needed for thumbnail extraction)</dd>
+          <dt>ushort twidth, theight</dt>
+          <dd>Thumbnail image size. Note: these fields may be zero (so, image
+            size is unknown at parse phase)</dd>
+          <dt>ushort tflip</dt>
+          <dd>Thumbnail image rotation, it may differ from main image rotation.
+            This field may be set to 0xffff, this means 'rotation is not known'</dd>
+          <dt> unsigned tlength;</dt>
+          <dd>Thumbnail on-disk data size</dd>
+          <dt>unsigned tmisc;</dt>
+          <dd>Bits per pixel and color count: (color &lt;&lt; 5) | bits </dd>
+          <dt> INT64 toffset;</dt>
+          <dd>Thumbnail data offset in file</dd>
+        </dl>
+      </dd>
+    </dl>
+   <p>
+   Note: even if no thumbnails were found in TIFF/CR3 structure, the
+   thumbcount field will be initialized to 1 and thumblist[0] will be
+   initialized to thumbnail data from the thumbnail data, so 
+   LibRaw::unpack_thumb_ex(0) will do the same as LibRaw::unpack_thumb().
+   </p>
     <p><a name="libraw_lensinfo_t"></a></p>
     <h3>Structure libraw_lensinfo_t: parsed lens data</h3>
     <p>The following parameters are extracted from Makernotes and EXIF, to help
@@ -680,7 +719,7 @@
         Don't use automatic increase of brightness by histogram.</dd>
       <dt><strong> float auto_bright_thr; </strong></dt>
       <dd><strong> dcraw keys: </strong> none <br>
-        Portion of clipped pixels when auto brighness increase is used. Default
+        Portion of clipped pixels when auto brightness increase is used. Default
         value is 0.01 (1%) for dcraw compatibility. Recommended value for modern
         low-noise multimegapixel cameras depends on shooting style. Values in
         0.001-0.00003 range looks reasonable.</dd>
@@ -756,13 +795,13 @@
         interpolation callback call.</dd>
       <dt><strong> int no_interpolation; </strong></dt>
       <dd>Disables call to demosaic code in LibRaw::dcraw_process()</dd>
+      <dt><strong> int use_p1_correction;</strong></dt>
+      <dd>If set to non-zero (default): PhaseOne compressed files will be corrected (linearization; defect mapping)
+        based on metadata contained in file.</dd>
     </dl>
     <p><a name="libraw_callbacks_t"></a></p>
     <h3>Structure libraw_callbacks_t: user-settable callbacks</h3>
     <dl>
-      <dt>memory_callback mem_cb</dt>
-      <dd>Called on memory allocation error. Settable via set_memerror_handler.
-        See <a href="API-CXX.html#callbacks">C++ API</a> for details.</dd>
       <dt>data_callback data_cb</dt>
       <dd>Called on data error, settable via set_dataerror_handler. See <a href="API-CXX.html#callbacks">C++
           API</a> for details.</dd>
@@ -900,7 +939,7 @@
     <p>Definition:</p>
     <pre>	class LibRaw_abstract_datastream {...protected: LibRaw_abstract_datastream *substream;}
 </pre>
-    <p><strong> Description: </strong> Ojects derived from
+    <p><strong> Description: </strong> Objects derived from
       LibRaw_abstract_datastream always contains pointer to secondary data
       stream (substream). This substream initialized internally when needed
       (really used only for Sony RAW data) and used for temporary switch input
@@ -980,6 +1019,13 @@
         containing no preview.</dd>
       <dt><strong> LIBRAW_UNSUPPORTED_THUMBNAIL </strong></dt>
       <dd>RAW file contains a preview of unsupported format.</dd>
+      <dt><strong> LIBRAW_INPUT_CLOSED </strong></dt>
+      <dd>Input stream is not available for reading.</dd>
+      <dt><strong> LIBRAW_NOT_IMPLEMENTED </strong></dt>
+      <dd>Decoder for specific RAW storage/compression format is not
+        implemented.</dd>
+      <dt><strong> LIBRAW_REQUEST_FOR_NONEXISTENT_THUMBNAIL </strong></dt>
+      <dd>Attempt to retrieve a non-existent thumbnail by (invalid) index.</dd>
     </dl>
     <p><a name="decoder_flags"></a></p>
     <h3>enum LibRaw_decoder_flags - RAW data format description</h3>
@@ -1119,7 +1165,10 @@
       <dt><strong>LIBRAW_THUMBNAIL_H265</strong></dt>
       <dd>The thumbnail buffer contains a H.265 data frame (read from RAW file
         as is, no manipulations performed on it).</dd>
-    </dl>
+        <dt><strong>LIBRAW_THUMBNAIL_JPEGXL</strong></dt>
+        <dd>The thumbnail buffer contains a JPEG-XL data frame (read from RAW file
+          as is, no manipulations performed on it).</dd>
+      </dl>
     <p><a name="warnings"></a></p>
     <h3>Nonstandard Situations (Warnings) during RAW Data Processing</h3>
     <p>Some suspicious situations emerging during image processing are not fatal
@@ -1172,6 +1221,10 @@
       <dd>DNG Stage2 conversion was performed</dd>
       <dt><strong> LIBRAW_DNG_STAGE3_APPLIED</strong></dt>
       <dd>DNG Stage3 conversion was performed</dd>
+      <dt><strong>LIBRAW_WARN_VENDOR_CROP_SUGGESTED</strong></dt>
+      <dd> If set: unknown/untested RAW image frame size passed to LibRaw, cropping may be incorrect.
+        <p></p>It is suggested to use LibRaw::adjust_to_raw_inset_crop(1) for vendor specified crop.
+    </dd>
     </dl>
     <dl>
     </dl>
@@ -1263,9 +1316,14 @@
         plus data size is beyond filecontents. This flag enforces size+offset
         checks for files from known vendors (this will result into correct but
         smaller thumbnail selected).</li>
-      <li><strong>LIBRAW_RAWOPTIONS_CHECK_THUMBNAILS_ALL_VENDORS</strong> - same
+        <li><strong>LIBRAW_RAWOPTIONS_CHECK_THUMBNAILS_ALL_VENDORS</strong> - same
         is above, but check is performed regardless of vendor (Make tag).</li>
-    </ul>
+        <li><strong>LIBRAW_RAWOPTIONS_ALLOW_JPEGXL_PREVIEWS</strong> -
+          if set, LibRaw will perceive such previews in the same way as JPEG onesgest preview is 
+          selected by default, etc).<p>
+            tformat field for such preview is set to LIBRAW_THUMBNAIL_JPEGXL. Image metadata (width/height/channels count) is not parsed for JPEG-XL previews
+          </p></li>
+      </ul>
     <ul>
     </ul>
     <p> <a name="LibRaw_rawspecial_t"></a></p>

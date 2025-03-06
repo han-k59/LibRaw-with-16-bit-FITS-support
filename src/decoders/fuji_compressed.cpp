@@ -153,7 +153,6 @@ void LibRaw::init_fuji_compr(fuji_compressed_params *params)
     params->buf = malloc(q_table_size);
   else
     params->buf = malloc(3 * q_table_size);
-  merror(params->buf, "init_fuji_compr()");
 
   if (libraw_internal_data.unpacker_data.fuji_raw_type == 16)
     params->line_width = (libraw_internal_data.unpacker_data.fuji_block_width * 2) / 3;
@@ -230,6 +229,7 @@ static inline void fuji_fill_buffer(fuji_compressed_block *info)
 {
   if (info->cur_pos >= info->cur_buf_size)
   {
+	bool needthrow = false;
     info->cur_pos = 0;
     info->cur_buf_offset += info->cur_buf_size;
 #ifdef LIBRAW_USE_OPENMP
@@ -253,10 +253,12 @@ static inline void fuji_fill_buffer(fuji_compressed_block *info)
           info->fillbytes -= ls;
         }
         else
-          throw LIBRAW_EXCEPTION_IO_EOF;
+          needthrow = true;
       }
       info->max_read_size -= info->cur_buf_size;
     }
+	if (needthrow)
+		throw LIBRAW_EXCEPTION_IO_EOF;
   }
 }
 
@@ -277,7 +279,6 @@ void LibRaw::init_fuji_block(fuji_compressed_block *info, const fuji_compressed_
                              unsigned dsize)
 {
   info->linealloc = (ushort *)calloc(sizeof(ushort), _ltotal * (params->line_width + 2));
-  merror(info->linealloc, "init_fuji_block()");
 
   INT64 fsize = libraw_internal_data.internal_data.input->size();
   info->max_read_size = _min(unsigned(fsize - raw_offset), dsize); // Data size may be incorrect?
@@ -290,7 +291,6 @@ void LibRaw::init_fuji_block(fuji_compressed_block *info, const fuji_compressed_
 
   // init buffer
   info->cur_buf = (uchar *)malloc(XTRANS_BUF_SIZE);
-  merror(info->cur_buf, "init_fuji_block()");
   info->cur_bit = 0;
   info->cur_pos = 0;
   info->cur_buf_offset = raw_offset;
@@ -691,7 +691,7 @@ static void fuji_extend_blue(ushort *linebuf[_ltotal], int line_width)
   fuji_extend_generic(linebuf, line_width, _B2, _B4);
 }
 
-void LibRaw::xtrans_decode_block(fuji_compressed_block *info, const fuji_compressed_params *params, int cur_line)
+void LibRaw::xtrans_decode_block(fuji_compressed_block *info, const fuji_compressed_params *params, int /*cur_line*/)
 {
   int r_even_pos = 0, r_odd_pos = 1;
   int g_even_pos = 0, g_odd_pos = 1;
@@ -857,7 +857,7 @@ void LibRaw::xtrans_decode_block(fuji_compressed_block *info, const fuji_compres
     derror();
 }
 
-void LibRaw::fuji_bayer_decode_block(fuji_compressed_block *info, const fuji_compressed_params *params, int cur_line)
+void LibRaw::fuji_bayer_decode_block(fuji_compressed_block *info, const fuji_compressed_params *params, int /*cur_line*/)
 {
   int r_even_pos = 0, r_odd_pos = 1;
   int g_even_pos = 0, g_odd_pos = 1;
@@ -1024,7 +1024,6 @@ void LibRaw::fuji_decode_strip(fuji_compressed_params *params, int cur_block, IN
     int buf_size = sizeof(fuji_compressed_params) + (2 << libraw_internal_data.unpacker_data.fuji_bits);
 
     info_common = (fuji_compressed_params *)malloc(buf_size);
-    merror(info_common, "fuji_decode_strip()");
     memcpy(info_common, params, sizeof(fuji_compressed_params));
     info_common->qt[0].q_table = (int8_t *)(info_common + 1);
     info_common->qt[0].q_base = -1;
@@ -1102,13 +1101,16 @@ void LibRaw::fuji_compressed_load_raw()
 
   // read block sizes
   block_sizes = (unsigned *)malloc(sizeof(unsigned) * libraw_internal_data.unpacker_data.fuji_total_blocks);
-  merror(block_sizes, "fuji_compressed_load_raw()");
   raw_block_offsets = (INT64 *)malloc(sizeof(INT64) * libraw_internal_data.unpacker_data.fuji_total_blocks);
-  merror(raw_block_offsets, "fuji_compressed_load_raw()");
 
   libraw_internal_data.internal_data.input->seek(libraw_internal_data.unpacker_data.data_offset, SEEK_SET);
-  libraw_internal_data.internal_data.input->read(
-      block_sizes, 1, sizeof(unsigned) * libraw_internal_data.unpacker_data.fuji_total_blocks);
+  int sizesToRead = sizeof(unsigned) * libraw_internal_data.unpacker_data.fuji_total_blocks;
+  if (libraw_internal_data.internal_data.input->read(block_sizes, 1, sizesToRead) != sizesToRead)
+  {
+    free(block_sizes);
+    free(raw_block_offsets);
+    throw LIBRAW_EXCEPTION_IO_EOF;
+  }
 
   raw_offset = ((sizeof(unsigned) * libraw_internal_data.unpacker_data.fuji_total_blocks) + 0xF) & ~0xF;
 
@@ -1118,7 +1120,6 @@ void LibRaw::fuji_compressed_load_raw()
     int total_q_bases = libraw_internal_data.unpacker_data.fuji_total_blocks *
                         ((libraw_internal_data.unpacker_data.fuji_total_lines + 0xF) & ~0xF);
     q_bases = (uchar *)malloc(total_q_bases);
-    merror(q_bases, "fuji_compressed_load_raw()");
     libraw_internal_data.internal_data.input->seek(raw_offset + libraw_internal_data.unpacker_data.data_offset,
                                                    SEEK_SET);
     libraw_internal_data.internal_data.input->read(q_bases, 1, total_q_bases);
@@ -1153,13 +1154,30 @@ void LibRaw::fuji_decode_loop(fuji_compressed_params *common_info, int count, IN
   int cur_block;
   const int lineStep = (libraw_internal_data.unpacker_data.fuji_total_lines + 0xF) & ~0xF;
 #ifdef LIBRAW_USE_OPENMP
-#pragma omp parallel for private(cur_block)
+  unsigned errcnt = 0;
+#pragma omp parallel for private(cur_block) shared(errcnt)
 #endif
   for (cur_block = 0; cur_block < count; cur_block++)
   {
-    fuji_decode_strip(common_info, cur_block, raw_block_offsets[cur_block], block_sizes[cur_block],
-                      q_bases ? q_bases + cur_block * lineStep : 0);
+	  try
+	  {
+        fuji_decode_strip(common_info, cur_block, raw_block_offsets[cur_block], block_sizes[cur_block],
+                          q_bases ? q_bases + cur_block * lineStep : 0);
+	  }
+	  catch (...)
+	  {
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp atomic
+		  errcnt++;
+#else
+		  throw;
+#endif
+	  }
   }
+#ifdef LIBRAW_USE_OPENMP
+  if (errcnt)
+		  throw LIBRAW_EXCEPTION_IO_EOF;
+#endif
 }
 
 void LibRaw::parse_fuji_compressed_header()
@@ -1170,7 +1188,8 @@ void LibRaw::parse_fuji_compressed_header()
   uchar header[16];
 
   libraw_internal_data.internal_data.input->seek(libraw_internal_data.unpacker_data.data_offset, SEEK_SET);
-  libraw_internal_data.internal_data.input->read(header, 1, sizeof(header));
+  if (libraw_internal_data.internal_data.input->read(header, 1, sizeof(header)) != sizeof(header))
+    return;
 
   // read all header
   signature = sgetn(2, header);

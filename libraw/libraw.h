@@ -1,6 +1,6 @@
 /* -*- C++ -*-
  * File: libraw.h
- * Copyright 2008-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2008-2024 LibRaw LLC (info@libraw.org)
  * Created: Sat Mar  8, 2008
  *
  * LibRaw C++ interface
@@ -22,11 +22,6 @@ it under the terms of the one of two licenses as you choose:
 
 #ifdef __linux__
 #define _FILE_OFFSET_BITS 64
-#endif
-
-// Enable use old cinema cameras if USE_OLD_VIDEOCAMS defined
-#ifdef USE_OLD_VIDEOCAMS
-#define LIBRAW_OLD_VIDEO_SUPPORT
 #endif
 
 #ifndef LIBRAW_USE_DEPRECATED_IOSTREAMS_DATASTREAM
@@ -117,6 +112,7 @@ extern "C"
                                unsigned black_level);
   DllDef int libraw_unpack(libraw_data_t *);
   DllDef int libraw_unpack_thumb(libraw_data_t *);
+  DllDef int libraw_unpack_thumb_ex(libraw_data_t *,int);
   DllDef void libraw_recycle_datastream(libraw_data_t *);
   DllDef void libraw_recycle(libraw_data_t *);
   DllDef void libraw_close(libraw_data_t *);
@@ -124,16 +120,17 @@ extern "C"
   DllDef int libraw_raw2image(libraw_data_t *);
   DllDef void libraw_free_image(libraw_data_t *);
   /* version helpers */
-  DllDef const char *libraw_version();
-  DllDef int libraw_versionNumber();
+  DllDef const char *libraw_version(void);
+  DllDef int libraw_versionNumber(void);
   /* Camera list */
-  DllDef const char **libraw_cameraList();
-  DllDef int libraw_cameraCount();
+  DllDef const char **libraw_cameraList(void);
+  DllDef int libraw_cameraCount(void);
 
   /* helpers */
-  DllDef void libraw_set_memerror_handler(libraw_data_t *, memory_callback cb,
-                                          void *datap);
   DllDef void libraw_set_exifparser_handler(libraw_data_t *,
+                                            exif_parser_callback cb,
+                                            void *datap);
+  DllDef void libraw_set_makernotes_handler(libraw_data_t *,
                                             exif_parser_callback cb,
                                             void *datap);
   DllDef void libraw_set_dataerror_handler(libraw_data_t *, data_callback func,
@@ -144,7 +141,8 @@ extern "C"
   DllDef int libraw_get_decoder_info(libraw_data_t *lr,
                                      libraw_decoder_info_t *d);
   DllDef int libraw_COLOR(libraw_data_t *, int row, int col);
-  DllDef unsigned libraw_capabilities();
+  DllDef unsigned libraw_capabilities(void);
+  DllDef int libraw_adjust_to_raw_inset_crop(libraw_data_t *lr, unsigned mask, float maxcrop);
 
   /* DCRAW compatibility */
   DllDef int libraw_adjust_sizes_info_only(libraw_data_t *);
@@ -221,6 +219,7 @@ public:
   void recycle_datastream();
   int unpack(void);
   int unpack_thumb(void);
+  int unpack_thumb_ex(int);
   int thumbOK(INT64 maxsz = -1);
   int adjust_sizes_info_only(void);
   int subtract_black();
@@ -236,10 +235,10 @@ public:
     callbacks.exifparser_data = data;
     callbacks.exif_cb = cb;
   }
-  void set_memerror_handler(memory_callback cb, void *data)
+  void set_makernotes_handler(exif_parser_callback cb, void *data)
   {
-    callbacks.memcb_data = data;
-    callbacks.mem_cb = cb;
+    callbacks.makernotesparser_data = data;
+    callbacks.makernotes_cb = cb;
   }
   void set_dataerror_handler(data_callback func, void *data)
   {
@@ -257,6 +256,10 @@ public:
 
   void convertFloatToInt(float dmin = 4096.f, float dmax = 32767.f,
                          float dtarget = 16383.f);
+
+  /* Make/Model simplification */
+  static int simplify_make_model(unsigned *_maker_index, char *_make, unsigned _make_buf_size, char *_model, unsigned _model_buf_size);
+
   /* helpers */
   static unsigned capabilities();
   static const char *version();
@@ -383,7 +386,9 @@ protected:
   int crxDecodePlane(void *, uint32_t planeNumber);
   virtual void crxLoadFinalizeLoopE3(void *, int);
   void crxConvertPlaneLineDf(void *, int);
-
+  /* Panasonic Compression 8 parallel decoder stubs*/
+  virtual void pana8_decode_loop(void*);
+  int pana8_decode_strip(void*, int); // return: 0 if OK, non-zero on error
   int FCF(int row, int col)
   {
     int rr, cc;
@@ -407,7 +412,6 @@ protected:
   void *calloc(size_t n, size_t t);
   void *realloc(void *p, size_t s);
   void free(void *p);
-  void merror(void *ptr, const char *where);
   void derror();
 
   LibRaw_TLS *tls;
@@ -417,18 +421,13 @@ protected:
   libraw_memmgr memmgr;
   libraw_callbacks_t callbacks;
 
-  void (LibRaw::*write_thumb)();
+  //void (LibRaw::*write_thumb)();
   void (LibRaw::*write_fun)();
   void (LibRaw::*load_raw)();
-  void (LibRaw::*thumb_load_raw)();
+  //void (LibRaw::*thumb_load_raw)();
   void (LibRaw::*pentax_component_load_raw)();
 
-  void kodak_thumb_loader();
   void write_thumb_ppm_tiff(FILE *);
-#ifdef USE_X3FTOOLS
-  void x3f_thumb_loader();
-  INT64 x3f_thumb_size();
-#endif
 
   int own_filtering_supported() { return 0; }
   void identify();
@@ -470,11 +469,13 @@ protected:
   void stretch();
 
   void jpeg_thumb_writer(FILE *tfp, char *thumb, int thumb_length);
+#if 0
   void jpeg_thumb();
   void ppm_thumb();
   void ppm16_thumb();
   void layer_thumb();
   void rollei_thumb();
+#endif
   void kodak_thumb_load_raw();
 
   unsigned get4();
@@ -486,6 +487,7 @@ protected:
   /* RawSpeed data */
   void *_rawspeed_camerameta;
   void *_rawspeed_decoder;
+  void *_rawspeed3_handle;
   void fix_after_rawspeed(int bl);
   int try_rawspeed(); /* returns LIBRAW_SUCCESS on success */
   /* Fast cancel flag */

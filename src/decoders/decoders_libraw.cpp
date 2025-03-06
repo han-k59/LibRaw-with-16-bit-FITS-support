@@ -1,6 +1,9 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2022 LibRaw LLC (info@libraw.org)
  *
+ * PhaseOne IIQ-Sv2 decoder is inspired by code provided by Daniel Vogelbacher <daniel@chaospixel.com>
+ *
+
  LibRaw is free software; you can redistribute it and/or modify
  it under the terms of the one of two licenses as you choose:
 
@@ -13,10 +16,15 @@
  */
 
 #include "../../internal/libraw_cxx_defs.h"
+#include <vector>
+#include <algorithm> // for std::sort
 
 void LibRaw::sony_arq_load_raw()
 {
   int row, col;
+  if (imgdata.idata.filters || imgdata.idata.colors < 3)
+	  throw LIBRAW_EXCEPTION_IO_CORRUPT;
+
   read_shorts(imgdata.rawdata.raw_image,
               imgdata.sizes.raw_width * imgdata.sizes.raw_height * 4);
   libraw_internal_data.internal_data.input->seek(
@@ -46,11 +54,19 @@ void LibRaw::sony_arq_load_raw()
 
 void LibRaw::pentax_4shot_load_raw()
 {
-  ushort *plane = (ushort *)malloc(imgdata.sizes.raw_width *
-                                   imgdata.sizes.raw_height * sizeof(ushort));
-  int alloc_sz = imgdata.sizes.raw_width * (imgdata.sizes.raw_height + 16) * 4 *
+#ifdef LIBRAW_CALLOC_RAWSTORE
+  ushort *plane = (ushort *)calloc(size_t(imgdata.sizes.raw_width) * size_t(imgdata.sizes.raw_height), sizeof(ushort));
+#else
+  ushort *plane = (ushort *)malloc(size_t(imgdata.sizes.raw_width) *
+                                   size_t(imgdata.sizes.raw_height) * sizeof(ushort));
+#endif
+  size_t alloc_sz = size_t(imgdata.sizes.raw_width) * (size_t(imgdata.sizes.raw_height) + 16) * 4 *
                  sizeof(ushort);
+#ifdef LIBRAW_CALLOC_RAWSTORE
+  ushort(*result)[4] = (ushort(*)[4])calloc(alloc_sz,1);
+#else
   ushort(*result)[4] = (ushort(*)[4])malloc(alloc_sz);
+#endif
   struct movement_t
   {
     int row, col;
@@ -183,24 +199,62 @@ static inline void unpack7bytesto4x16_nikon(unsigned char *src,
   dest[0] = ((src[1] & 0x3f) << 8) | src[0];
 }
 
+static inline void unpack21bytesto12x16_nikon(unsigned char *src, unsigned short (*dest)[4])
+{
+	// bytes 0-6
+  dest[0][0] = ((src[1] & 0x3f) << 8) | src[0];
+  dest[0][1] = (src[3] & 0xf) << 10 | (src[2] << 2) | (src[1] >> 6);
+  dest[0][2] = ((src[5] & 0x3) << 12) | (src[4] << 4) | (src[3] >> 4);
+  dest[1][0] = (src[6] << 6) | (src[5] >> 2);
+  // bytes 7-13
+  dest[1][1] = ((src[8] & 0x3f) << 8) | src[7];
+  dest[1][2] = (src[10] & 0xf) << 10 | (src[9] << 2) | (src[8] >> 6);
+  dest[2][0] = ((src[12] & 0x3) << 12) | (src[11] << 4) | (src[10] >> 4);
+  dest[2][1] = (src[13] << 6) | (src[12] >> 2);
+  // bytes 14-20
+  dest[2][2] = ((src[15] & 0x3f) << 8) | src[14];
+  dest[3][0] = (src[17] & 0xf) << 10 | (src[16] << 2) | (src[15] >> 6);
+  dest[3][1] = ((src[19] & 0x3) << 12) | (src[18] << 4) | (src[17] >> 4);
+  dest[3][2] = (src[20] << 6) | (src[19] >> 2);
+}
+
+
 void LibRaw::nikon_14bit_load_raw()
 {
+  int cps = (imgdata.idata.filters == 0 && imgdata.idata.colors == 3) ? 3 : 1;
+
+  if (cps == 1 && !imgdata.rawdata.raw_image)
+	  throw LIBRAW_EXCEPTION_DECODE_RAW;
+  if(cps == 3 && !imgdata.image)
+    throw LIBRAW_EXCEPTION_DECODE_RAW;
+
   const unsigned linelen =
-      (unsigned)(ceilf((float)(S.raw_width * 7 / 4) / 16.0)) *
+      (unsigned)(ceilf((float)(S.raw_width * cps * 7 / 4) / 16.0f)) *
       16; // 14512; // S.raw_width * 7 / 4;
-  const unsigned pitch = S.raw_pitch ? S.raw_pitch / 2 : S.raw_width;
-  unsigned char *buf = (unsigned char *)malloc(linelen);
-  merror(buf, "nikon_14bit_load_raw()");
+  const unsigned pitch = S.raw_pitch ? S.raw_pitch /( (cps>=3)? 8 : 2) : S.raw_width;
+  unsigned char *buf = (unsigned char *)calloc(linelen,1);
   for (int row = 0; row < S.raw_height; row++)
   {
     unsigned bytesread =
         libraw_internal_data.internal_data.input->read(buf, 1, linelen);
-    unsigned short *dest = &imgdata.rawdata.raw_image[pitch * row];
-    // swab32arr((unsigned *)buf, bytesread / 4);
-    for (unsigned int sp = 0, dp = 0;
-         dp < pitch - 3 && sp < linelen - 6 && sp < bytesread - 6;
-         sp += 7, dp += 4)
-      unpack7bytesto4x16_nikon(buf + sp, dest + dp);
+	if (cps == 1)
+	{
+		unsigned short *dest = &imgdata.rawdata.raw_image[pitch * row];
+		// swab32arr((unsigned *)buf, bytesread / 4);
+		for (unsigned int sp = 0, dp = 0;
+			dp < pitch - 3 && sp < linelen - 6 && sp < bytesread - 6;
+			sp += 7, dp += 4)
+			unpack7bytesto4x16_nikon(buf + sp, dest + dp);
+	}
+	else if (cps == 3)
+	{
+      unsigned short (*dest)[4] = &imgdata.image[pitch * row];
+      // swab32arr((unsigned *)buf, bytesread / 4);
+      for (unsigned int sp = 0, dp = 0; 
+		  dp < pitch - 3 && sp < linelen - 20 && sp < bytesread - 20; 
+		  sp += 21, dp += 4)
+        unpack21bytesto12x16_nikon(buf + sp, dest + dp);
+	}
   }
   free(buf);
 }
@@ -209,8 +263,7 @@ void LibRaw::fuji_14bit_load_raw()
 {
   const unsigned linelen = S.raw_width * 7 / 4;
   const unsigned pitch = S.raw_pitch ? S.raw_pitch / 2 : S.raw_width;
-  unsigned char *buf = (unsigned char *)malloc(linelen);
-  merror(buf, "fuji_14bit_load_raw()");
+  unsigned char *buf = (unsigned char *)calloc(linelen,1);
 
   for (int row = 0; row < S.raw_height; row++)
   {
@@ -241,7 +294,7 @@ void LibRaw::nikon_load_padded_packed_raw() // 12 bit per pixel, padded to 16
       libraw_internal_data.unpacker_data.load_flags > 64000)
     return;
   unsigned char *buf =
-      (unsigned char *)malloc(libraw_internal_data.unpacker_data.load_flags);
+      (unsigned char *)calloc(libraw_internal_data.unpacker_data.load_flags,1);
   for (int row = 0; row < S.raw_height; row++)
   {
     checkCancel();
@@ -305,7 +358,7 @@ void LibRaw::nikon_load_striped_packed_raw()
                          << i);
       }
       imgdata.rawdata.raw_image[(row)*S.raw_width + (col)] =
-          bitbuf << (64 - tiff_bps - vbits) >> (64 - tiff_bps);
+          ushort((bitbuf << (64 - tiff_bps - vbits) >> (64 - tiff_bps)) & 0xffff);
     }
     vbits -= rbits;
   }
@@ -381,8 +434,6 @@ void pana_cs6_page_decoder::read_page12()
   lastoffset += 16;
 }
 
-
-
 void LibRaw::panasonicC6_load_raw()
 {
   const int rowstep = 16;
@@ -401,7 +452,6 @@ void LibRaw::panasonicC6_load_raw()
   }
   catch (...)
   {
-    merror(NULL, "panasonicC6_load_raw()");
     throw LIBRAW_EXCEPTION_ALLOC;
   }
 
@@ -475,8 +525,7 @@ void LibRaw::panasonicC7_load_raw()
   const int rowstep = 16;
   int pixperblock = libraw_internal_data.unpacker_data.pana_bpp == 14 ? 9 : 10;
   int rowbytes = imgdata.sizes.raw_width / pixperblock * 16;
-  unsigned char *iobuf = (unsigned char *)malloc(rowbytes * rowstep);
-  merror(iobuf, "panasonicC7_load_raw()");
+  unsigned char *iobuf = (unsigned char *)calloc(rowbytes * rowstep,1);
   for (int row = 0; row < imgdata.sizes.raw_height - rowstep + 1;
        row += rowstep)
   {
@@ -538,7 +587,7 @@ void LibRaw::unpacked_load_raw_fuji_f700s20()
     libraw_internal_data.internal_data.input->seek(-row_size, SEEK_CUR);
     base_offset = row_size; // in bytes
   }
-  unsigned char *buffer = (unsigned char *)malloc(row_size * 2);
+  unsigned char *buffer = (unsigned char *)calloc(row_size,2);
   for (int row = 0; row < imgdata.sizes.raw_height; row++)
   {
     read_shorts((ushort *)buffer, imgdata.sizes.raw_width * 2);
@@ -552,7 +601,7 @@ void LibRaw::nikon_load_sraw()
 {
   // We're already seeked to data!
   unsigned char *rd =
-      (unsigned char *)malloc(3 * (imgdata.sizes.raw_width + 2));
+      (unsigned char *)calloc(3 * (imgdata.sizes.raw_width + 2),1);
   if (!rd)
     throw LIBRAW_EXCEPTION_ALLOC;
   try
@@ -637,12 +686,12 @@ void LibRaw::nikon_load_sraw()
         r = 0.f;
       if (r > 1.f)
         r = 1.f;
-      float g = Y - 0.34414f * (Ch2 - 0.5f) - 0.71414 * (Ch3 - 0.5f);
+      float g = Y - 0.34414f * (Ch2 - 0.5f) - 0.71414f * (Ch3 - 0.5f);
       if (g > 1.f)
         g = 1.f;
       if (g < 0.f)
         g = 0.f;
-      float b = Y + 1.77200 * (Ch2 - 0.5f);
+      float b = Y + 1.77200f * (Ch2 - 0.5f);
       if (b > 1.f)
         b = 1.f;
       if (b < 0.f)
@@ -656,4 +705,207 @@ void LibRaw::nikon_load_sraw()
     }
   }
   C.maximum = 16383;
+}
+
+/*
+ Each row is decoded independently. Each row starts with a 16 bit prefix.
+ The hi byte is zero, the lo byte (first 3 bits) indicates a bit_base.
+ Other bits remain unused.
+
+ |0000 0000|0000 0XXX| => XXX is bit_base
+
+ After the prefix the pixel data starts. Pixels are grouped into clusters
+ forming 8 output pixel. Each cluster starts with a variable length of
+ bits, indicating decompression flags.
+
+
+*/
+
+#undef MIN
+#undef MAX
+#undef LIM
+
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define LIM(x, min, max) MAX(min, MIN(x, max))
+
+struct iiq_bitstream_t
+{
+	uint64_t curr;
+	uint32_t *input;
+	uint8_t used;
+	iiq_bitstream_t(uint32_t *img_input): curr(0),input(img_input),used(0){}
+
+	void fill()
+    {
+      if (used <= 32)
+      {
+        uint64_t bitpump_next = *input++;
+        curr = (curr << 32) | bitpump_next;
+        used += 32;
+      }
+    }
+    uint64_t peek(uint8_t len)
+    {
+      if (len >= used)
+        fill();
+
+	  uint64_t res = curr >> (used - len);
+      return res & ((1 << (uint8_t)len) - 1);
+    }
+
+    void consume(uint8_t len)
+    {
+      peek(len); // fill buffer if needed
+      used -= len;
+    }
+
+    uint64_t get(char len)
+    {
+      uint64_t val = peek(len);
+      consume(len);
+      return val;
+    }
+
+};
+
+void decode_S_type(int32_t out_width, uint32_t *img_input, ushort *outbuf /*, int bit_depth*/)
+{
+#if 0
+	if (((bit_depth - 12) & 0xFFFFFFFD) != 0)
+		return 0;
+#endif
+	iiq_bitstream_t stream(img_input);
+
+	const int pix_corr_shift = 2; // 16 - bit_depth;
+	unsigned int bit_check[2] = { 0, 0 };
+
+	const uint8_t used_corr[8] = {
+        3, 3, 3, 3, 1, 1, 1, 1,
+    };
+
+	const uint8_t extra_bits[8] = {
+        1, 2, 3, 4, 0, 0, 0, 0,
+    };
+
+	const uint8_t bit_indicator[8 * 4] = {
+        9, 8, 0, 7, 6, 6, 5, 5, 1, 1, 1, 1, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2,
+    };
+
+	const uint8_t skip_bits[8 * 4] = {5, 5, 5, 5, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3,
+                                      2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
+
+	int block_count = ((out_width - 8) >> 3) + 1;
+	int block_total_bytes = 8 * block_count;
+
+	int32_t prev_pix_value[2] = { 0, 0 };
+
+	uint8_t init_bits = stream.get(16) & 7;
+
+	if (out_width - 7 > 0)
+	{
+      uint8_t pix_sub_init = 17 - init_bits;
+
+      for (int blk_id = 0; blk_id < block_count; ++blk_id)
+      {
+        int8_t idx_even = int8_t(stream.peek(7));
+        stream.consume(2);
+
+        if ((unsigned int)idx_even >= 32)
+          bit_check[0] = ((unsigned int)idx_even >> 5) + bit_check[0] - 2;
+        else
+        {
+          bit_check[0] = bit_indicator[idx_even];
+          stream.consume(skip_bits[idx_even]);
+        }
+
+        int8_t idx_odd = int8_t(stream.peek(7));
+        stream.consume(2);
+
+        if ((unsigned int)idx_odd >= 32)
+          bit_check[1] = ((unsigned int)idx_odd >> 5) + bit_check[1] - 2;
+        else
+        {
+          bit_check[1] = bit_indicator[idx_odd];
+          stream.consume(skip_bits[idx_odd]);
+        }
+
+        uint8_t bidx = uint8_t(stream.peek(3));
+        stream.consume(used_corr[bidx]);
+
+        uint8_t take_bits = init_bits + extra_bits[bidx]; // 11 or less
+
+        uint32_t bp_shift[2] = {bit_check[0] - extra_bits[bidx], bit_check[1] - extra_bits[bidx]};
+
+		int pix_sub[2] = {0xFFFF >> (pix_sub_init - bit_check[0]), 0xFFFF >> (pix_sub_init - bit_check[1])};
+
+	    for (int i = 0; i < 8; i++) // MAIN LOOP for pixel decoding
+        {
+          int32_t value = 0;
+          if (bit_check[i & 1] == 9)
+            value = int32_t(stream.get(14));
+          else
+            value = prev_pix_value[i & 1] + ((uint32_t)stream.get(take_bits) << bp_shift[i & 1]) - pix_sub[i & 1];
+
+		  outbuf[i] = LIM(value << pix_corr_shift, 0, 0xffff);
+          prev_pix_value[i & 1] = value;
+        }
+          outbuf += 8; // always produce 8 pixels from this cluster
+      }
+	} // if width > 7                                            // End main if
+
+	// Final block
+	// maybe fill/unpack extra bytes if width % 8 <> 0?
+	if (block_total_bytes < out_width)
+	{
+		do
+		{
+			stream.fill();
+			uint32_t pix_value = uint32_t(stream.get(14));
+			++block_total_bytes;
+			*outbuf++ = pix_value << pix_corr_shift;
+		} while (block_total_bytes < out_width);
+	}
+}
+
+struct p1_row_info_t
+{
+	unsigned row;
+	INT64 offset;
+	p1_row_info_t(): row(0),offset(0){}
+	p1_row_info_t(const p1_row_info_t& q): row(q.row),offset(q.offset){}
+	bool operator < (const p1_row_info_t & rhs) const { return offset < rhs.offset; }
+};
+
+void LibRaw::phase_one_load_raw_s()
+{
+	if(!libraw_internal_data.unpacker_data.strip_offset || !imgdata.rawdata.raw_image || !libraw_internal_data.unpacker_data.data_offset)
+		throw LIBRAW_EXCEPTION_IO_CORRUPT;
+	std::vector<p1_row_info_t> stripes(imgdata.sizes.raw_height+1);
+	libraw_internal_data.internal_data.input->seek(libraw_internal_data.unpacker_data.strip_offset, SEEK_SET);
+	for (unsigned row = 0; row < imgdata.sizes.raw_height; row++)
+	{
+		stripes[row].row = row;
+		stripes[row].offset = INT64(get4()) + libraw_internal_data.unpacker_data.data_offset;
+	}
+	stripes[imgdata.sizes.raw_height].row = imgdata.sizes.raw_height;
+	stripes[imgdata.sizes.raw_height].offset = libraw_internal_data.unpacker_data.data_offset + INT64(libraw_internal_data.unpacker_data.data_size);
+	std::sort(stripes.begin(), stripes.end());
+	INT64 maxsz = imgdata.sizes.raw_width * 3 + 2; // theor max: 17 bytes per 8 pix + row header
+	std::vector<uint8_t> datavec(maxsz);
+
+	for (unsigned row = 0; row < imgdata.sizes.raw_height; row++)
+	{
+		if (stripes[row].row >= imgdata.sizes.raw_height) continue; 
+		ushort *datap = imgdata.rawdata.raw_image + stripes[row].row * imgdata.sizes.raw_width;
+		libraw_internal_data.internal_data.input->seek(stripes[row].offset, SEEK_SET);
+		INT64 readsz = stripes[row + 1].offset - stripes[row].offset;
+		if (readsz > maxsz)
+			throw LIBRAW_EXCEPTION_IO_CORRUPT;
+
+		if(libraw_internal_data.internal_data.input->read(datavec.data(), 1, readsz) != readsz)
+			derror(); // TODO: check read state
+
+		decode_S_type(imgdata.sizes.raw_width, (uint32_t *)datavec.data(), datap /*, 14 */);
+	}
 }

@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -44,7 +44,7 @@ float LibRaw::find_green(int bps, int bite, int off0, int off1)
   UINT64 bitbuf = 0;
   int vbits, col, i, c;
   ushort img[2][2064];
-  double sum[] = {0, 0};
+  float sum[] = {0, 0};
   if (width > 2064)
     return 0.f; // too wide
 
@@ -59,7 +59,7 @@ float LibRaw::find_green(int bps, int bite, int off0, int off1)
         for (i = 0; i < bite; i += 8)
           bitbuf |= (unsigned)(fgetc(ifp) << i);
       }
-      img[c][col] = bitbuf << (64 - bps - vbits) >> (64 - bps);
+      img[c][col] = ushort((bitbuf << (64 - bps - vbits) >> (64 - bps)) & 0xffff);
     }
   }
   FORC(width - 1)
@@ -68,7 +68,7 @@ float LibRaw::find_green(int bps, int bite, int off0, int off1)
     sum[~c & 1] += ABS(img[1][c] - img[0][c + 1]);
   }
   if (sum[0] >= 1.0 && sum[1] >= 1.0)
-    return 100 * log(sum[0] / sum[1]);
+    return 100.f * logf(sum[0] / sum[1]);
   else
     return 0.f;
 }
@@ -76,7 +76,7 @@ float LibRaw::find_green(int bps, int bite, int off0, int off1)
 void LibRaw::trimSpaces(char *s)
 {
   char *p = s;
-  int l = strlen(p);
+  int l = int(strlen(p));
   if (!l)
     return;
   while (isspace(p[l - 1]))
@@ -94,7 +94,7 @@ void LibRaw::remove_trailing_spaces(char *string, size_t len)
   if (len < 3)
     return; // also not needed
   len = strnlen(string, len - 1);
-  for (int i = len - 1; i >= 0; i--)
+  for (int i = int(len) - 1; i >= 0; i--)
   {
     if (isspace((unsigned char)string[i]))
       string[i] = 0;
@@ -108,8 +108,8 @@ void LibRaw::remove_caseSubstr(char *string, char *subStr) // replace a substrin
   char *found;
   while ((found = strcasestr(string,subStr))) {
     if (!found) return;
-    int fill_len = strlen(subStr);
-    int p = found - string;
+    int fill_len = int(strlen(subStr));
+    int p = int(found - string);
     for (int i=p; i<p+fill_len; i++) {
       string[i] = 32;
     }
@@ -119,7 +119,7 @@ void LibRaw::remove_caseSubstr(char *string, char *subStr) // replace a substrin
 
 void LibRaw::removeExcessiveSpaces(char *string) // replace repeating spaces with one space
 {
-	int orig_len = strlen(string);
+	int orig_len = int(strlen(string));
 	int i = 0;   // counter for resulting string
 	int j = -1;
 	bool prev_char_is_space = false;

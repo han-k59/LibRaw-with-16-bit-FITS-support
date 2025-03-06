@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
 
  LibRaw is free software; you can redistribute it and/or modify
@@ -41,8 +41,14 @@ void LibRaw::raw2image_start()
     break;
   }
 
+  for (int c = 0; c < 4; c++)
+    if (O.aber[c] < 0.001 || O.aber[c] > 1000.f)
+      O.aber[c] = 1.0;
+
   // adjust for half mode!
   IO.shrink =
+	  !imgdata.rawdata.color4_image && !imgdata.rawdata.color3_image &&
+	  !imgdata.rawdata.float4_image && !imgdata.rawdata.float3_image &&
       P1.filters &&
       (O.half_size || ((O.threshold || O.aber[0] != 1 || O.aber[2] != 1)));
 
@@ -59,12 +65,14 @@ int LibRaw::raw2image(void)
   {
     raw2image_start();
 
-    if (is_phaseone_compressed() && imgdata.rawdata.raw_alloc)
+	bool free_p1_buffer = false;
+    if (is_phaseone_compressed() && (imgdata.rawdata.raw_alloc || (imgdata.process_warnings & LIBRAW_WARN_RAWSPEED3_PROCESSED)))
     {
       phase_one_allocate_tempbuffer();
+	  free_p1_buffer = true;
       int rc = phase_one_subtract_black((ushort *)imgdata.rawdata.raw_alloc,
                                         imgdata.rawdata.raw_image);
-      if (rc == 0)
+      if (rc == 0 && imgdata.params.use_p1_correction)
         rc = phase_one_correct();
       if (rc != 0)
       {
@@ -74,17 +82,17 @@ int LibRaw::raw2image(void)
     }
 
     // free and re-allocate image bitmap
+	int extra = P1.filters ? (P1.filters == 9 ? 6 : 2) : 0;
     if (imgdata.image)
     {
       imgdata.image = (ushort(*)[4])realloc(
-          imgdata.image, S.iheight * S.iwidth * sizeof(*imgdata.image));
-      memset(imgdata.image, 0, S.iheight * S.iwidth * sizeof(*imgdata.image));
+          imgdata.image, (S.iheight+extra) * (S.iwidth+extra) * sizeof(*imgdata.image));
+      memset(imgdata.image, 0, (S.iheight+extra) * (S.iwidth+extra) * sizeof(*imgdata.image));
     }
     else
       imgdata.image =
-          (ushort(*)[4])calloc(S.iheight * S.iwidth, sizeof(*imgdata.image));
+          (ushort(*)[4])calloc((S.iheight+extra) * (S.iwidth+extra), sizeof(*imgdata.image));
 
-    merror(imgdata.image, "raw2image()");
 
     libraw_decoder_info_t decoder_info;
     get_decoder_info(&decoder_info);
@@ -104,7 +112,7 @@ int LibRaw::raw2image(void)
         {
           for (col = 0;
                col < IO.fuji_width
-                         << !libraw_internal_data.unpacker_data.fuji_layout;
+                         << int(!libraw_internal_data.unpacker_data.fuji_layout);
                col++)
           {
             if (libraw_internal_data.unpacker_data.fuji_layout)
@@ -117,7 +125,7 @@ int LibRaw::raw2image(void)
               r = IO.fuji_width - 1 + row - (col >> 1);
               c = row + ((col + 1) >> 1);
             }
-            if (r < S.height && c < S.width)
+            if (r < S.height && c < S.width && col + int(S.left_margin) < int(S.raw_width))
               imgdata.image[((r) >> IO.shrink) * S.iwidth + ((c) >> IO.shrink)]
                            [FC(r, c)] =
                   imgdata.rawdata
@@ -142,7 +150,7 @@ int LibRaw::raw2image(void)
     {
       if (imgdata.rawdata.color4_image)
       {
-        if (S.width * 8 == S.raw_pitch && S.height == S.raw_height)
+        if (S.width * 8u == S.raw_pitch && S.height == S.raw_height)
           memmove(imgdata.image, imgdata.rawdata.color4_image,
                   S.width * S.height * sizeof(*imgdata.image));
         else
@@ -179,7 +187,7 @@ int LibRaw::raw2image(void)
     }
 
     // Free PhaseOne separate copy allocated at function start
-    if (is_phaseone_compressed())
+    if (free_p1_buffer)
     {
       phase_one_free_tempbuffer();
     }
@@ -217,7 +225,7 @@ void LibRaw::copy_fuji_uncropped(unsigned short cblack[4],
     int col;
     unsigned short ldmax = 0;
     for (col = 0;
-         col < IO.fuji_width << !libraw_internal_data.unpacker_data.fuji_layout
+         col < IO.fuji_width << int(!libraw_internal_data.unpacker_data.fuji_layout)
          && col + int(S.left_margin) < int(S.raw_width);
          col++)
     {
@@ -305,14 +313,16 @@ int LibRaw::raw2image_ex(int do_subtract_black)
   try
   {
     raw2image_start();
+	bool free_p1_buffer = false;
 
     // Compressed P1 files with bl data!
-    if (is_phaseone_compressed() && imgdata.rawdata.raw_alloc)
+    if (is_phaseone_compressed() && (imgdata.rawdata.raw_alloc || (imgdata.process_warnings & LIBRAW_WARN_RAWSPEED3_PROCESSED)))
     {
       phase_one_allocate_tempbuffer();
+	  free_p1_buffer = true;
       int rc = phase_one_subtract_black((ushort *)imgdata.rawdata.raw_alloc,
                                         imgdata.rawdata.raw_image);
-      if (rc == 0)
+      if (rc == 0 && imgdata.params.use_p1_correction)
         rc = phase_one_correct();
       if (rc != 0)
       {
@@ -326,11 +336,11 @@ int LibRaw::raw2image_ex(int do_subtract_black)
     if (~O.cropbox[2] && ~O.cropbox[3])
     {
       int crop[4], c, filt;
-      for (int c = 0; c < 4; c++)
+      for (int q = 0; q < 4; q++)
       {
-        crop[c] = O.cropbox[c];
-        if (crop[c] < 0)
-          crop[c] = 0;
+        crop[q] = O.cropbox[q];
+        if (crop[q] < 0)
+          crop[q] = 0;
       }
 
       if (IO.fuji_width && imgdata.idata.filters >= 1000)
@@ -339,8 +349,8 @@ int LibRaw::raw2image_ex(int do_subtract_black)
         crop[1] = (crop[1] / 4) * 4;
         if (!libraw_internal_data.unpacker_data.fuji_layout)
         {
-          crop[2] *= sqrt(2.0);
-          crop[3] /= sqrt(2.0);
+          crop[2] = int(crop[2] * sqrtf(2.f));
+          crop[3] = int(crop[3] / sqrtf(2.f));
         }
         crop[2] = (crop[2] / 4 + 1) * 4;
         crop[3] = (crop[3] / 4 + 1) * 4;
@@ -379,12 +389,13 @@ int LibRaw::raw2image_ex(int do_subtract_black)
       }
     }
 
-    int alloc_width = S.iwidth;
-    int alloc_height = S.iheight;
+	int extra = P1.filters ? (P1.filters == 9 ? 6 : 2) : 0;
+    int alloc_width = S.iwidth + extra;
+    int alloc_height = S.iheight + extra;
 
     if (IO.fuji_width && do_crop)
     {
-      int IO_fw = S.width >> !libraw_internal_data.unpacker_data.fuji_layout;
+      int IO_fw = S.width >> int(!libraw_internal_data.unpacker_data.fuji_layout);
       int t_alloc_width =
           (S.height >> libraw_internal_data.unpacker_data.fuji_layout) + IO_fw;
       int t_alloc_height = t_alloc_width - 1;
@@ -401,7 +412,6 @@ int LibRaw::raw2image_ex(int do_subtract_black)
     }
     else
       imgdata.image = (ushort(*)[4])calloc(alloc_sz, sizeof(*imgdata.image));
-    merror(imgdata.image, "raw2image_ex()");
 
     libraw_decoder_info_t decoder_info;
     get_decoder_info(&decoder_info);
@@ -428,9 +438,9 @@ int LibRaw::raw2image_ex(int do_subtract_black)
         if (do_crop)
         {
           IO.fuji_width =
-              S.width >> !libraw_internal_data.unpacker_data.fuji_layout;
+              S.width >> int(!libraw_internal_data.unpacker_data.fuji_layout);
           int IO_fwidth =
-              (S.height >> libraw_internal_data.unpacker_data.fuji_layout) +
+              (S.height >> int(libraw_internal_data.unpacker_data.fuji_layout)) +
               IO.fuji_width;
           int IO_fheight = IO_fwidth - 1;
 
@@ -488,7 +498,7 @@ int LibRaw::raw2image_ex(int do_subtract_black)
     {
       if (imgdata.rawdata.color4_image)
       {
-          if (S.raw_pitch != S.width * 8 || S.height != S.raw_height)
+          if (S.raw_pitch != S.width * 8u || S.height != S.raw_height)
           {
               for (int row = 0; row < copyheight; row++)
                   memmove(&imgdata.image[row * S.width],
@@ -528,7 +538,7 @@ int LibRaw::raw2image_ex(int do_subtract_black)
     }
 
     // Free PhaseOne separate copy allocated at function start
-    if (is_phaseone_compressed())
+    if (free_p1_buffer)
     {
       phase_one_free_tempbuffer();
     }

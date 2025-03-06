@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -92,40 +92,6 @@ int LibRaw::canon_s2is()
   return 0;
 }
 
-#ifdef LIBRAW_OLD_VIDEO_SUPPORT
-void LibRaw::parse_redcine()
-{
-  unsigned i, len, rdvo;
-
-  order = 0x4d4d;
-  is_raw = 0;
-  fseek(ifp, 52, SEEK_SET);
-  width = get4();
-  height = get4();
-  fseek(ifp, 0, SEEK_END);
-  fseek(ifp, -(i = ftello(ifp) & 511), SEEK_CUR);
-  if (get4() != i || get4() != 0x52454f42)
-  {
-    fseek(ifp, 0, SEEK_SET);
-    while ((len = get4()) != (unsigned)EOF)
-    {
-      if (get4() == 0x52454456)
-        if (is_raw++ == shot_select)
-          data_offset = ftello(ifp) - 8;
-      fseek(ifp, len - 8, SEEK_CUR);
-    }
-  }
-  else
-  {
-    rdvo = get4();
-    fseek(ifp, 12, SEEK_CUR);
-    is_raw = get4();
-    fseeko(ifp, rdvo + 8 + shot_select * 4, SEEK_SET);
-    data_offset = get4();
-  }
-}
-#endif
-
 void LibRaw::parse_cine()
 {
   unsigned off_head, off_setup, off_image, i, temp;
@@ -182,12 +148,12 @@ void LibRaw::parse_cine()
   case 0:
     flip = 2;
   }
-  cam_mul[0] = getreal(LIBRAW_EXIFTAG_TYPE_FLOAT);
-  cam_mul[2] = getreal(LIBRAW_EXIFTAG_TYPE_FLOAT);
+  cam_mul[0] = getrealf(LIBRAW_EXIFTAG_TYPE_FLOAT);
+  cam_mul[2] = getrealf(LIBRAW_EXIFTAG_TYPE_FLOAT);
   temp = get4();
   maximum = ~((~0u) << LIM(temp, 1, 31));
   fseek(ifp, 668, SEEK_CUR);
-  shutter = get4() / 1000000000.0;
+  shutter = float(get4()) / 1000000000.f;
   fseek(ifp, off_image, SEEK_SET);
   if (shot_select < is_raw)
     fseek(ifp, shot_select * 8, SEEK_CUR);
@@ -195,9 +161,10 @@ void LibRaw::parse_cine()
   data_offset += (INT64)get4() << 32;
 }
 
-void LibRaw::parse_qt(int end)
+void LibRaw::parse_qt(INT64 end)
 {
-  unsigned save, size;
+  unsigned size;
+  INT64 save;
   char tag[4];
 
   order = 0x4d4d;
@@ -216,20 +183,20 @@ void LibRaw::parse_qt(int end)
       parse_qt(save + size);
     if (!memcmp(tag, "CNDA", 4))
       parse_jpeg(ftell(ifp));
-    fseek(ifp, save + size, SEEK_SET);
+    fseek(ifp, save + INT64(size), SEEK_SET);
   }
 }
 
-void LibRaw::parse_smal(int offset, int fsize)
+void LibRaw::parse_smal(INT64 offset, INT64 fsize)
 {
   int ver;
 
-  fseek(ifp, offset + 2, SEEK_SET);
+  fseek(ifp, offset + 2LL, SEEK_SET);
   order = 0x4949;
   ver = fgetc(ifp);
   if (ver == 6)
     fseek(ifp, 5, SEEK_CUR);
-  if (get4() != (unsigned)fsize)
+  if (INT64(get4()) != fsize)
     return;
   if (ver > 6)
     data_offset = get4();
@@ -243,13 +210,16 @@ void LibRaw::parse_smal(int offset, int fsize)
     load_raw = &LibRaw::smal_v9_load_raw;
 }
 
-void LibRaw::parse_riff()
+void LibRaw::parse_riff(int maxdepth)
 {
-  unsigned i, size, end;
+  unsigned i, size;
+  INT64 end;
   char tag[4], date[64], month[64];
   static const char mon[12][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
   struct tm t;
+  if (maxdepth < 1)
+	  throw LIBRAW_EXCEPTION_IO_CORRUPT;
 
   order = 0x4949;
   fread(tag, 4, 1, ifp);
@@ -260,12 +230,14 @@ void LibRaw::parse_riff()
     int maxloop = 1000;
     get4();
     while (ftell(ifp) + 7 < end && !feof(ifp) && maxloop--)
-      parse_riff();
+      parse_riff(maxdepth-1);
   }
   else if (!memcmp(tag, "nctg", 4))
   {
     while (ftell(ifp) + 7 < end)
     {
+		if (feof(ifp))
+			break;
       i = get2();
       size = get2();
       if ((i + 1) >> 1 == 10 && size == 20)
@@ -327,11 +299,11 @@ void LibRaw::parse_rollei()
     if (!strcmp(line, "TY "))
       thumb_height = atoi(val);
     if (!strcmp(line, "APT"))
-      aperture = atof(val);
+      aperture = float(atof(val));
     if (!strcmp(line, "SPE"))
-      shutter = atof(val);
+      shutter = float(atof(val));
     if (!strcmp(line, "FOCLEN"))
-      focal_len = atof(val);
+      focal_len = float(atof(val));
     if (!strcmp(line, "BLKOFS"))
       black = atoi(val) +1;
     if (!strcmp(line, "ORI"))
@@ -361,7 +333,7 @@ void LibRaw::parse_rollei()
     timestamp = mktime(&t);
   strcpy(make, "Rollei");
   strcpy(model, "d530flex");
-  write_thumb = &LibRaw::rollei_thumb;
+  thumb_format = LIBRAW_INTERNAL_THUMBNAIL_ROLLEI;
 }
 
 void LibRaw::parse_sinar_ia()
@@ -401,7 +373,7 @@ void LibRaw::parse_sinar_ia()
   load_raw = &LibRaw::unpacked_load_raw;
   thumb_width = (get4(), get2());
   thumb_height = get2();
-  write_thumb = &LibRaw::ppm_thumb;
+  thumb_format = LIBRAW_INTERNAL_THUMBNAIL_PPM;
   maximum = 0x3fff;
 }
 
@@ -419,11 +391,11 @@ void LibRaw::parse_kyocera()
   if ((c > 6) && (c < 20))
     iso_speed = table[c - 7];
   shutter = libraw_powf64l(2.0f, (((float)get4()) / 8.0f)) / 16000.0f;
-  FORC4 cam_mul[RGGB_2_RGBG(c)] = get4();
+  FORC4 cam_mul[RGGB_2_RGBG(c)] = float(get4());
   fseek(ifp, 88, SEEK_SET);
   aperture = libraw_powf64l(2.0f, ((float)get4()) / 16.0f);
   fseek(ifp, 112, SEEK_SET);
-  focal_len = get4();
+  focal_len = float(get4());
 
   fseek(ifp, 104, SEEK_SET);
   ilm.MaxAp4CurFocal = libraw_powf64l(2.0f, ((float)get4()) / 16.0f);
@@ -438,9 +410,11 @@ void LibRaw::parse_kyocera()
   }
 }
 
-int LibRaw::parse_jpeg(int offset)
+int LibRaw::parse_jpeg(INT64 offset)
 {
-  int len, save, hlen, mark;
+  int len, hlen, mark;
+  INT64 save;
+
   fseek(ifp, offset, SEEK_SET);
   if (fgetc(ifp) != 0xff || fgetc(ifp) != 0xd8)
     return 0;
@@ -458,21 +432,22 @@ int LibRaw::parse_jpeg(int offset)
     }
     order = get2();
     hlen = get4();
-    if (get4() == 0x48454150 && (save + hlen) >= 0 &&
-        (save + hlen) <= ifp->size()) /* "HEAP" */
+    if (get4() == 0x48454150 && (save + INT64(hlen)) >= 0 &&
+        (save + INT64(hlen)) <= ifp->size()) /* "HEAP" */
     {
       parse_ciff(save + hlen, len - hlen, 0);
     }
     if (parse_tiff(save + 6))
       apply_tiff();
-    fseek(ifp, save + len, SEEK_SET);
+    fseek(ifp, save + INT64(len), SEEK_SET);
   }
   return 1;
 }
 
-void LibRaw::parse_thumb_note(int base, unsigned toff, unsigned tlen)
+void LibRaw::parse_thumb_note(INT64 base, unsigned toff, unsigned tlen)
 {
-  unsigned entries, tag, type, len, save;
+  unsigned entries, tag, type, len;
+  INT64 save;
 
   entries = get2();
   while (entries--)
@@ -602,7 +577,7 @@ void LibRaw::parse_raspberrypi()
 
     if (ftell(ifp) > 22LL) // 22 bytes is minimum jpeg size
     {
-        thumb_length = ftell(ifp);
+        thumb_length = unsigned(ftell(ifp));
         thumb_offset = 0;
         thumb_width = thumb_height = 0;
         load_flags |= 0x4000; // flag: we have JPEG from beginning to meta_offset

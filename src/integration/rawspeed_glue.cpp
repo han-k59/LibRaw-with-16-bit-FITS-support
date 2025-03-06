@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw is free software; you can redistribute it and/or modify
  it under the terms of the one of two licenses as you choose:
@@ -12,17 +12,47 @@
 
  */
 
+#define LIBRAW_EXPAT_CONFLICT
 #include "../../internal/libraw_cxx_defs.h"
 
-#ifdef USE_RAWSPEED
-using namespace RawSpeed;
 
-CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : CameraMetaData()
+#ifdef USE_RAWSPEED
+#include <RawSpeed/StdAfx.h>
+#include <RawSpeed/FileMap.h>
+#include <RawSpeed/RawParser.h>
+#include <RawSpeed/RawDecoder.h>
+#include <RawSpeed/CameraMetaData.h>
+#include <RawSpeed/ColorFilterArray.h>
+
+#include "../../RawSpeed/rawspeed_xmldata.cpp"
+const int RAWSPEED_DATA_COUNT = (sizeof(_rawspeed_data_xml) / sizeof(_rawspeed_data_xml[0]));
+
+
+class CameraMetaDataLR : public RawSpeed::CameraMetaData
+{
+public:
+  CameraMetaDataLR() : CameraMetaData() {}
+  CameraMetaDataLR(char *filename) : RawSpeed::CameraMetaData(filename) {}
+  CameraMetaDataLR(char *data, int sz);
+};
+
+
+#define P1 imgdata.idata
+#define S imgdata.sizes
+#define O imgdata.params
+#define C imgdata.color
+#define T imgdata.thumbnail
+#define MN imgdata.makernotes
+#define IO libraw_internal_data.internal_output_params
+#define ID libraw_internal_data.internal_data
+
+
+CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : RawSpeed::CameraMetaData()
 {
   ctxt = xmlNewParserCtxt();
   if (ctxt == NULL)
   {
-    ThrowCME("CameraMetaData:Could not initialize context.");
+    RawSpeed::ThrowCME("CameraMetaData:Could not initialize context.");
   }
 
   xmlResetLastError();
@@ -30,7 +60,7 @@ CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : CameraMetaData()
 
   if (doc == NULL)
   {
-    ThrowCME("CameraMetaData: XML Document could not be parsed successfully. "
+	  RawSpeed::ThrowCME("CameraMetaData: XML Document could not be parsed successfully. "
              "Error was: %s",
              ctxt->lastError.message);
   }
@@ -43,7 +73,7 @@ CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : CameraMetaData()
     }
     else
     {
-      ThrowCME("CameraMetaData: XML file does not validate. DTD Error was: %s",
+		RawSpeed::ThrowCME("CameraMetaData: XML file does not validate. DTD Error was: %s",
                ctxt->lastError.message);
     }
   }
@@ -52,7 +82,7 @@ CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : CameraMetaData()
   cur = xmlDocGetRootElement(doc);
   if (xmlStrcmp(cur->name, (const xmlChar *)"Cameras"))
   {
-    ThrowCME("CameraMetaData: XML document of the wrong type, root node is not "
+	  RawSpeed::ThrowCME("CameraMetaData: XML document of the wrong type, root node is not "
              "cameras.");
     return;
   }
@@ -62,13 +92,13 @@ CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : CameraMetaData()
   {
     if ((!xmlStrcmp(cur->name, (const xmlChar *)"Camera")))
     {
-      Camera *camera = new Camera(doc, cur);
+		RawSpeed::Camera *camera = new RawSpeed::Camera(doc, cur);
       addCamera(camera);
 
       // Create cameras for aliases.
       for (unsigned int i = 0; i < camera->aliases.size(); i++)
       {
-        addCamera(new Camera(camera, i));
+        addCamera(new RawSpeed::Camera(camera, i));
       }
     }
     cur = cur->next;
@@ -81,13 +111,13 @@ CameraMetaDataLR::CameraMetaDataLR(char *data, int sz) : CameraMetaData()
   ctxt = 0;
 }
 
-CameraMetaDataLR *make_camera_metadata()
+void *make_camera_metadata()
 {
   int len = 0, i;
   for (i = 0; i < RAWSPEED_DATA_COUNT; i++)
     if (_rawspeed_data_xml[i])
     {
-      len += strlen(_rawspeed_data_xml[i]);
+      len += int(strlen(_rawspeed_data_xml[i]));
     }
   char *rawspeed_xml =
       (char *)calloc(len + 1, sizeof(_rawspeed_data_xml[0][0]));
@@ -97,7 +127,7 @@ CameraMetaDataLR *make_camera_metadata()
   for (i = 0; i < RAWSPEED_DATA_COUNT; i++)
     if (_rawspeed_data_xml[i])
     {
-      int ll = strlen(_rawspeed_data_xml[i]);
+      int ll = int(strlen(_rawspeed_data_xml[i]));
       if (offt + ll > len)
         break;
       memmove(rawspeed_xml + offt, _rawspeed_data_xml[i], ll);
@@ -117,9 +147,24 @@ CameraMetaDataLR *make_camera_metadata()
   return ret;
 }
 
-#endif
+void clear_rawspeed_decoder(void* _rawspeed_decoder)
+{
+	RawSpeed::RawDecoder *d =
+	static_cast<RawSpeed::RawDecoder *>(_rawspeed_decoder);
+	if(d)
+	 delete d;
+}
 
-int LibRaw::set_rawspeed_camerafile(char *filename)
+void clear_camera_metadata(void* _rawspeed_camerameta)
+{
+   CameraMetaDataLR *cmeta =
+         static_cast<CameraMetaDataLR *>(_rawspeed_camerameta);
+   if(cmeta)
+     delete cmeta;
+}
+
+
+int LibRaw::set_rawspeed_camerafile(char * filename)
 {
 #ifdef USE_RAWSPEED
   try
@@ -138,11 +183,13 @@ int LibRaw::set_rawspeed_camerafile(char *filename)
     // just return error code
     return -1;
   }
+#else
+    (void)filename;
 #endif
   return 0;
 }
 #ifdef USE_RAWSPEED
-void LibRaw::fix_after_rawspeed(int bl)
+void LibRaw::fix_after_rawspeed(int /*bl*/)
 {
   if (load_raw == &LibRaw::lossy_dng_load_raw)
     C.maximum = 0xffff;
@@ -158,7 +205,11 @@ int LibRaw::try_rawspeed()
 #ifdef USE_RAWSPEED
   int ret = LIBRAW_SUCCESS;
 
+#ifdef USE_RAWSPEED_BITS
+  int rawspeed_ignore_errors = (imgdata.rawparams.use_rawspeed & LIBRAW_RAWSPEEDV1_IGNOREERRORS);
+#else
   int rawspeed_ignore_errors = 0;
+#endif
   if (imgdata.idata.dng_version && imgdata.idata.colors == 3 &&
       !strcasecmp(imgdata.idata.software,
                   "Adobe Photoshop Lightroom 6.1.1 (Windows)"))
@@ -170,34 +221,45 @@ int LibRaw::try_rawspeed()
   try
   {
     ID.input->seek(0, SEEK_SET);
-    INT64 _rawspeed_buffer_sz = ID.input->size() + 32;
+    INT64 _rawspeed_buffer_sz = ID.input->size() + 32LL;
+	if(_rawspeed_buffer_sz > 2147483647LL)
+      throw LIBRAW_EXCEPTION_ALLOC;
+
     _rawspeed_buffer = malloc(_rawspeed_buffer_sz);
     if (!_rawspeed_buffer)
       throw LIBRAW_EXCEPTION_ALLOC;
     ID.input->read(_rawspeed_buffer, _rawspeed_buffer_sz, 1);
-    FileMap map((uchar8 *)_rawspeed_buffer, _rawspeed_buffer_sz);
-    RawParser t(&map);
-    RawDecoder *d = 0;
+    RawSpeed::FileMap map((RawSpeed::uchar8 *)_rawspeed_buffer, uint32_t(_rawspeed_buffer_sz));
+	RawSpeed::RawParser t(&map);
+	RawSpeed::RawDecoder *d = 0;
     CameraMetaDataLR *meta =
         static_cast<CameraMetaDataLR *>(_rawspeed_camerameta);
     d = t.getDecoder();
     if (!d)
       throw "Unable to find decoder";
+
+#ifdef USE_RAWSPEED_BITS
+    if (imgdata.rawparams.use_rawspeed & LIBRAW_RAWSPEEDV1_FAILONUNKNOWN)
+      d->failOnUnknown = TRUE;
+    else
+        d->failOnUnknown = FALSE;
+#endif
+    d->interpolateBadPixels = FALSE;
+    d->applyStage1DngOpcodes = FALSE;
+
     try
     {
       d->checkSupport(meta);
     }
-    catch (const RawDecoderException &e)
+    catch (const RawSpeed::RawDecoderException &e)
     {
       imgdata.process_warnings |= LIBRAW_WARN_RAWSPEED_UNSUPPORTED;
       throw e;
     }
-    d->interpolateBadPixels = FALSE;
-    d->applyStage1DngOpcodes = FALSE;
     _rawspeed_decoder = static_cast<void *>(d);
     d->decodeRaw();
     d->decodeMetaData(meta);
-    RawImage r = d->mRaw;
+	RawSpeed::RawImage r = d->mRaw;
     if (r->errors.size() > 0 && !rawspeed_ignore_errors)
     {
       delete d;
@@ -229,7 +291,7 @@ int LibRaw::try_rawspeed()
     if (_rawspeed_decoder)
     {
       // set sizes
-      iPoint2D rsdim = r->getUncroppedDim();
+		RawSpeed::iPoint2D rsdim = r->getUncroppedDim();
       S.raw_pitch = r->pitch;
       S.raw_width = rsdim.x;
       S.raw_height = rsdim.y;
@@ -240,7 +302,7 @@ int LibRaw::try_rawspeed()
     _rawspeed_buffer = 0;
     imgdata.process_warnings |= LIBRAW_WARN_RAWSPEED_PROCESSED;
   }
-  catch (const RawDecoderException &RDE)
+  catch (const RawSpeed::RawDecoderException &RDE)
   {
     imgdata.process_warnings |= LIBRAW_WARN_RAWSPEED_PROBLEM;
     if (_rawspeed_buffer)
@@ -248,7 +310,6 @@ int LibRaw::try_rawspeed()
       free(_rawspeed_buffer);
       _rawspeed_buffer = 0;
     }
-    const char *p = RDE.what();
     if (!strncmp(RDE.what(), "Decoder canceled", strlen("Decoder canceled")))
       throw LIBRAW_EXCEPTION_CANCELLED_BY_CALLBACK;
     ret = LIBRAW_UNSPECIFIED_ERROR;
@@ -271,3 +332,4 @@ int LibRaw::try_rawspeed()
   return LIBRAW_NOT_IMPLEMENTED;
 #endif
 }
+#endif

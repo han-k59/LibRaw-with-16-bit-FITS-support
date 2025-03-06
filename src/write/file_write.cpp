@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -42,7 +42,7 @@ void LibRaw::tiff_set(struct tiff_hdr *th, ushort *ntag, ushort tag,
     FORC(4) tt->val.c[c] = val >> (c << 3);
   else if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_ASCII))
   {
-    count = strnlen((char *)th + val, count - 1) + 1;
+    count = int(strnlen((char *)th + val, count - 1)) + 1;
     if (count <= 4)
       FORC(4) tt->val.c[c] = ((char *)th)[val + c];
   }
@@ -53,7 +53,7 @@ void LibRaw::tiff_set(struct tiff_hdr *th, ushort *ntag, ushort tag,
   tt->tag = tag;
 }
 
-#define TOFF(ptr) ((char *)(&(ptr)) - (char *)th)
+#define TOFF(ptr) int((char *)(&(ptr)) - (char *)th)
 
 void LibRaw::tiff_head(struct tiff_hdr *th, int full)
 {
@@ -67,9 +67,9 @@ void LibRaw::tiff_head(struct tiff_hdr *th, int full)
   th->rat[0] = th->rat[2] = 300;
   th->rat[1] = th->rat[3] = 1;
   FORC(6) th->rat[4 + c] = 1000000;
-  th->rat[4] *= shutter;
-  th->rat[6] *= aperture;
-  th->rat[8] *= focal_len;
+  th->rat[4] = int(shutter * 1000000.f);
+  th->rat[6] = int(aperture * 1000000.f);
+  th->rat[8] = int(focal_len * 1000000.f);
   strncpy(th->t_desc, desc, 512);
   strncpy(th->t_make, make, 64);
   strncpy(th->t_model, model, 64);
@@ -117,7 +117,7 @@ void LibRaw::tiff_head(struct tiff_hdr *th, int full)
     tiff_set(th, &th->ntag, 34675, 7, psize, sizeof *th);
   tiff_set(th, &th->nexif, 33434, 5, 1, TOFF(th->rat[4]));
   tiff_set(th, &th->nexif, 33437, 5, 1, TOFF(th->rat[6]));
-  tiff_set(th, &th->nexif, 34855, 3, 1, iso_speed);
+  tiff_set(th, &th->nexif, 34855, 3, 1, int(iso_speed));
   tiff_set(th, &th->nexif, 37386, 5, 1, TOFF(th->rat[8]));
   if (gpsdata[1])
   {
@@ -163,7 +163,7 @@ void LibRaw::write_ppm_tiff()
         int c, row, col, soff, rstep, cstep;
         int perc, val, total, t_white = 0x2000;
 
-        perc = width * height * auto_bright_thr;
+        perc = int(width * height * auto_bright_thr);
 
         if (fuji_width)
             perc /= 2;
@@ -176,7 +176,7 @@ void LibRaw::write_ppm_tiff()
                 if (t_white < val)
                     t_white = val;
             }
-        gamma_curve(gamm[0], gamm[1], 2, (t_white << 3) / bright);
+        gamma_curve(gamm[0], gamm[1], 2, int((t_white << 3) / bright));
         iheight = height;
         iwidth = width;
         if (flip & 4)
@@ -232,15 +232,16 @@ void LibRaw::write_ppm_tiff()
                 else
                     FORCC ppm2[col * colors + c] = curve[image[soff][c]];
             if (output_bps == 16 && !output_tiff && htons(0x55aa) != 0x55aa)
-                swab((char *)ppm2, (char *)ppm2, width * colors * 2);
+                libraw_swab(ppm2, width * colors * 2);
             fwrite(ppm.data(), colors * output_bps / 8, width, ofp);
         }
     }
     catch (...)
     {
-        merror(NULL, "write_ppm_thumb()");
+      throw LIBRAW_EXCEPTION_ALLOC; // rethrow
     }
 }
+#if 0
 void LibRaw::ppm_thumb()
 {
     try
@@ -253,7 +254,7 @@ void LibRaw::ppm_thumb()
     }
     catch (...)
     {
-        merror(NULL, "ppm_thumb()");
+      throw LIBRAW_EXCEPTION_ALLOC; // rethrow
     }
 }
 
@@ -272,7 +273,7 @@ void LibRaw::ppm16_thumb()
     }
     catch (...)
     {
-        merror(NULL, "ppm16_thumb()");
+      throw LIBRAW_EXCEPTION_ALLOC; // rethrow
     }
 }
 
@@ -295,7 +296,7 @@ void LibRaw::layer_thumb()
     }
     catch (...)
     {
-        merror(NULL, "layer_thumb()");
+      throw LIBRAW_EXCEPTION_ALLOC; // rethrow
     }
 }
 
@@ -317,7 +318,7 @@ void LibRaw::rollei_thumb()
     }
     catch (...)
     {
-        merror(NULL, "rollei_thumb()");
+      throw LIBRAW_EXCEPTION_ALLOC; // rethrow
     }
 }
 
@@ -331,6 +332,7 @@ void LibRaw::jpeg_thumb()
     }
     catch (...)
     {
-        merror(NULL, "jpeg_thumb()");
+      throw LIBRAW_EXCEPTION_ALLOC; // rethrow
     }
 }
+#endif

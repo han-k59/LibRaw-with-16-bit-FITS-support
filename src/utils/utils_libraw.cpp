@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
 
  LibRaw is free software; you can redistribute it and/or modify
@@ -14,24 +14,20 @@
  */
 
 #include "../../internal/libraw_cxx_defs.h"
+#include "../../internal/libraw_checked_buffer.h"
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-  void default_memory_callback(void *, const char *file, const char *where)
-  {
-    fprintf(stderr, "%s: Out of memory in %s\n", file ? file : "unknown file",
-            where);
-  }
 
-  void default_data_callback(void *, const char *file, const int offset)
+  void default_data_callback(void *, const char *file, const INT64 offset)
   {
     if (offset < 0)
       fprintf(stderr, "%s: Unexpected end of file\n",
               file ? file : "unknown file");
     else
-      fprintf(stderr, "%s: data corrupted at %d\n",
+      fprintf(stderr, "%s: data corrupted at %lld\n",
               file ? file : "unknown file", offset);
   }
   const char *libraw_strerror(int e)
@@ -55,6 +51,10 @@ extern "C"
       return "Unsupported thumbnail format";
     case LIBRAW_INPUT_CLOSED:
       return "No input stream, or input stream closed";
+    case LIBRAW_NOT_IMPLEMENTED:
+      return "Decoder not implemented for this data format";
+    case LIBRAW_REQUEST_FOR_NONEXISTENT_THUMBNAIL:
+      return "Request for nonexisting thumbnail number";
     case LIBRAW_MEMPOOL_OVERFLOW:
       return "Libraw internal mempool overflowed";
     case LIBRAW_UNSUFFICIENT_MEMORY:
@@ -197,6 +197,12 @@ unsigned LibRaw::capabilities()
 #ifdef USE_RAWSPEED
   ret |= LIBRAW_CAPS_RAWSPEED;
 #endif
+#ifdef USE_RAWSPEED3
+  ret |= LIBRAW_CAPS_RAWSPEED3;
+#endif
+#ifdef USE_RAWSPEED_BITS
+  ret |= LIBRAW_CAPS_RAWSPEED_BITS;
+#endif
 #ifdef USE_DNGSDK
   ret |= LIBRAW_CAPS_DNGSDK;
 #ifdef USE_GPRSDK
@@ -224,7 +230,8 @@ unsigned LibRaw::capabilities()
 int LibRaw::is_sraw()
 {
   return load_raw == &LibRaw::canon_sraw_load_raw ||
-         load_raw == &LibRaw::nikon_load_sraw;
+         load_raw == &LibRaw::nikon_load_sraw ||
+		  load_raw == &LibRaw::sony_ycbcr_load_raw;
 }
 int LibRaw::is_coolscan_nef()
 {
@@ -232,7 +239,7 @@ int LibRaw::is_coolscan_nef()
 }
 int LibRaw::is_jpeg_thumb()
 {
-  return thumb_load_raw == 0 && write_thumb == &LibRaw::jpeg_thumb;
+  return libraw_internal_data.unpacker_data.thumb_format == LIBRAW_INTERNAL_THUMBNAIL_JPEG;
 }
 
 int LibRaw::is_nikon_sraw() { return load_raw == &LibRaw::nikon_load_sraw; }
@@ -240,6 +247,8 @@ int LibRaw::sraw_midpoint()
 {
   if (load_raw == &LibRaw::canon_sraw_load_raw)
     return 8192;
+  else if (load_raw == &LibRaw::sony_ycbcr_load_raw)
+    return 8192; // adjusted as in canon sRAW
   else if (load_raw == &LibRaw::nikon_load_sraw)
     return 2048;
   else
@@ -279,18 +288,6 @@ void LibRaw::recycle_datastream()
     libraw_internal_data.internal_data.input = NULL;
   }
   libraw_internal_data.internal_data.input_internal = 0;
-}
-void LibRaw::merror(void *ptr, const char *where)
-{
-  if (ptr)
-    return;
-  if (callbacks.mem_cb)
-    (*callbacks.mem_cb)(callbacks.memcb_data,
-                        libraw_internal_data.internal_data.input
-                            ? libraw_internal_data.internal_data.input->fname()
-                            : NULL,
-                        where);
-  throw LIBRAW_EXCEPTION_ALLOC;
 }
 
 void LibRaw::clearCancelFlag()
@@ -362,6 +359,7 @@ void LibRaw::free_image(void)
 int LibRaw::is_phaseone_compressed()
 {
   return (load_raw == &LibRaw::phase_one_load_raw_c ||
+		  load_raw == &LibRaw::phase_one_load_raw_s ||
           load_raw == &LibRaw::phase_one_load_raw);
 }
 
@@ -552,7 +550,7 @@ void LibRaw::adjust_bl()
 int LibRaw::getwords(char *line, char *words[], int maxwords, int maxlen)
 {
   line[maxlen - 1] = 0;
-  char *p = line;
+  unsigned char *p = (unsigned char*)line;
   int nwords = 0;
 
   while (1)
@@ -561,7 +559,7 @@ int LibRaw::getwords(char *line, char *words[], int maxwords, int maxlen)
       p++;
     if (*p == '\0')
       return nwords;
-    words[nwords++] = p;
+    words[nwords++] = (char*)p;
     while (!isspace(*p) && *p != '\0')
       p++;
     if (*p == '\0')
@@ -583,7 +581,7 @@ int LibRaw::stread(char *buf, size_t len, LibRaw_abstract_datastream *fp)
     return 0;
 }
 
-int LibRaw::find_ifd_by_offset(int o)
+int LibRaw::find_ifd_by_offset(INT64 o)
 {
     for(unsigned i = 0; i < libraw_internal_data.identify_data.tiff_nifds && i < LIBRAW_IFD_MAXCOUNT; i++)
         if(tiff_ifd[i].offset == o)
@@ -619,8 +617,8 @@ int LibRaw::adjust_to_raw_inset_crop(unsigned mask, float maxcrop)
 
 {
     int adjindex = -1;
-	int limwidth = S.width * maxcrop;
-	int limheight = S.height * maxcrop;
+	int limwidth = int(S.width * maxcrop);
+	int limheight = int(S.height * maxcrop);
 
     for(int i = 1; i >= 0; i--)
         if (mask & (1<<i))
@@ -643,19 +641,13 @@ int LibRaw::adjust_to_raw_inset_crop(unsigned mask, float maxcrop)
     return adjindex + 1;
 }
 
-char** LibRaw::malloc_omp_buffers(int buffer_count, size_t buffer_size, const char* where)
+char** LibRaw::malloc_omp_buffers(int buffer_count, size_t buffer_size)
 {
-    char** buffers = (char**)malloc(sizeof(char*) * buffer_count);
-    merror(buffers, where);
+    char** buffers = (char**)calloc(sizeof(char*), buffer_count);
 
     for (int i = 0; i < buffer_count; i++)
     {
-        buffers[i] = (char*)malloc(buffer_size);
-        if (buffers[i] == NULL)
-        {
-            free_omp_buffers(buffers, i);
-            merror(NULL, where);
-        }
+        buffers[i] = (char*)calloc(buffer_size,1);
     }
     return buffers;
 }
@@ -663,6 +655,91 @@ char** LibRaw::malloc_omp_buffers(int buffer_count, size_t buffer_size, const ch
 void LibRaw::free_omp_buffers(char** buffers, int buffer_count)
 {
     for (int i = 0; i < buffer_count; i++)
-        free(buffers[i]);
+        if(buffers[i])
+            free(buffers[i]);
     free(buffers);
 }
+
+void 	LibRaw::libraw_swab(void *arr, int len)
+{
+#ifdef LIBRAW_OWN_SWAB
+	uint16_t *array = (uint16_t*)arr;
+	int bytes = len/2;
+	for(; bytes; --bytes)
+	{
+		*array = ((*array << 8) & 0xff00) | ((*array >> 8) & 0xff);
+		array++;
+	}
+#else
+	swab((char*)arr,(char*)arr,len);
+#endif
+
+}
+
+checked_buffer_t::checked_buffer_t(short ord, int size) : _order(ord), storage(size + 64)
+{
+  _data = storage.data();
+  _len = size;
+}
+checked_buffer_t::checked_buffer_t(short ord, unsigned char *dd, int ss) : _order(ord), _data(dd), _len(ss) {}
+
+ushort checked_buffer_t::sget2(int offset)
+{
+  checkoffset(offset);
+  checkoffset(offset + 2);
+  return libraw_sget2_static(_order, _data + offset);
+}
+void checked_buffer_t::checkoffset(int off)
+{
+  if (off >= _len || off < 0)
+    throw LIBRAW_EXCEPTION_IO_EOF;
+}
+unsigned char checked_buffer_t::operator[](int idx)
+{
+  checkoffset(idx);
+  return _data[idx];
+}
+unsigned checked_buffer_t::sget4(int offset)
+{
+  checkoffset(offset);
+  checkoffset(offset + 4);
+  return libraw_sget4_static(_order, _data + offset);
+}
+
+double checked_buffer_t::sgetreal(int type, int offset)
+{
+  checkoffset(offset);
+  int sz = libraw_tagtype_dataunit_bytes(type);
+  checkoffset(offset + sz);
+  return libraw_sgetreal_static(_order, type, _data + offset);
+}
+
+int checked_buffer_t::tiff_sget(unsigned save, INT64 *tag_offset, unsigned *tag_id, unsigned *tag_type, INT64 *tag_dataoffset,
+              unsigned *tag_datalen, int *tag_dataunitlen)
+{
+  if ((((*tag_offset) + 12) > _len) || (*tag_offset < 0))
+  { // abnormal, tag buffer overrun
+    return -1;
+  }
+  int pos = int(*tag_offset);
+  *tag_id = sget2(pos);
+  pos += 2;
+  *tag_type = sget2(pos);
+  pos += 2;
+  *tag_datalen = sget4(pos);
+  pos += 4;
+  *tag_dataunitlen = libraw_tagtype_dataunit_bytes(*tag_type);
+  if ((*tag_datalen * (*tag_dataunitlen)) > 4)
+  {
+    *tag_dataoffset = sget4(pos) - save;
+    if ((*tag_dataoffset + *tag_datalen) > _len)
+    { // abnormal, tag data buffer overrun
+      return -2;
+    }
+  }
+  else
+    *tag_dataoffset = *tag_offset + 8;
+  *tag_offset += 12;
+  return 0;
+}
+

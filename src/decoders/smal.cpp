@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -34,7 +34,7 @@ void LibRaw::smal_decode_segment(unsigned seg[2][2], int holes)
 
   fseek(ifp, seg[0][1] + 1, SEEK_SET);
   getbits(-1);
-  if (seg[1][0] > raw_width * raw_height)
+  if (seg[1][0] > unsigned(raw_width * raw_height))
     seg[1][0] = raw_width * raw_height;
   for (pix = seg[0][0]; pix < seg[1][0]; pix++)
   {
@@ -90,7 +90,7 @@ void LibRaw::smal_decode_segment(unsigned seg[2][2], int holes)
       diff = diff ? -diff : 0x80;
     if (ftell(ifp) + 12 >= seg[1][1])
       diff = 0;
-    if (pix >= raw_width * raw_height)
+    if (pix >= unsigned(raw_width * raw_height))
       throw LIBRAW_EXCEPTION_IO_CORRUPT;
     raw_image[pix] = pred[pix & 1] += diff;
     if (!(pix & 1) && HOLE(pix / raw_width))
@@ -166,12 +166,12 @@ void LibRaw::smal_v9_load_raw()
   nseg = (uchar)fgetc(ifp);
   fseek(ifp, offset, SEEK_SET);
   for (i = 0; i < nseg * 2; i++)
-    ((unsigned *)seg)[i] = get4() + data_offset * (i & 1);
+    ((unsigned *)seg)[i] = get4() + unsigned(data_offset & 0xffffffff) * (i & 1);
   fseek(ifp, 78, SEEK_SET);
   holes = fgetc(ifp);
   fseek(ifp, 88, SEEK_SET);
   seg[nseg][0] = raw_height * raw_width;
-  seg[nseg][1] = get4() + data_offset;
+  seg[nseg][1] = get4() + unsigned(data_offset & 0xffffffff);
   for (i = 0; i < nseg; i++)
     smal_decode_segment(seg + i, holes);
   if (holes)

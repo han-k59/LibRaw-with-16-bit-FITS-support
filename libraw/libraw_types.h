@@ -1,6 +1,6 @@
 /* -*- C++ -*-
  * File: libraw_types.h
- * Copyright 2008-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2008-2024 LibRaw LLC (info@libraw.org)
  * Created: Sat Mar  8 , 2008
  *
  * LibRaw C data structures
@@ -138,13 +138,10 @@ typedef unsigned long long UINT64;
                                        int len, unsigned int ord, void *ifp,
                                        INT64 base);
 
-  DllDef void default_memory_callback(void *data, const char *file,
-                                      const char *where);
-
-  typedef void (*data_callback)(void *data, const char *file, const int offset);
+  typedef void (*data_callback)(void *data, const char *file, const INT64 offset);
 
   DllDef void default_data_callback(void *data, const char *file,
-                                    const int offset);
+                                    const INT64 offset);
 
   typedef int (*progress_callback)(void *data, enum LibRaw_progress stage,
                                    int iteration, int expected);
@@ -154,17 +151,14 @@ typedef unsigned long long UINT64;
 
   typedef struct
   {
-    memory_callback mem_cb;
-    void *memcb_data;
-
     data_callback data_cb;
     void *datacb_data;
 
     progress_callback progress_cb;
     void *progresscb_data;
 
-    exif_parser_callback exif_cb;
-    void *exifparser_data;
+    exif_parser_callback exif_cb,makernotes_cb;
+    void *exifparser_data, *makernotesparser_data;
     pre_identify_callback pre_identify_cb;
     post_identify_callback post_identify_cb;
     process_step_callback pre_subtractblack_cb, pre_scalecolors_cb,
@@ -311,7 +305,7 @@ typedef unsigned long long UINT64;
         7 = CRAW         130 = Normal Movie, CRM LightRaw
       131 = CRM  StandardRaw */
     short Quality;
-    /* Increases dynamic range of sensor data
+    /* data compression curve
         0 = OFF  1 = CLogV1 2 = CLogV2? 3 = CLogV3 */
     int CanonLog;
 
@@ -376,6 +370,8 @@ typedef unsigned long long UINT64;
     ushort DRangePriority;
     ushort DRangePriorityAuto;
     ushort DRangePriorityFixed;
+    char   FujiModel[32 + 1];
+    char   FujiModel2[32 + 1];
 
     /*
     tag 0x9200, converted to BrightnessCompensation
@@ -490,6 +486,8 @@ typedef unsigned long long UINT64;
 	 8: Small raw
 	 9: Packed 12-bit
 	10: Packed 14-bit
+	13: High Efficiency  (HE)
+	14: High Efficiency* (HE*)
 */
     ushort NEFCompression;
 
@@ -513,7 +511,18 @@ typedef unsigned long long UINT64;
     ushort SensorWidth;
     ushort SensorHeight;
     ushort Active_D_Lighting;
+    unsigned PictureControlVersion;
+    char PictureControlName [20];
+    char PictureControlBase [20];
     unsigned ShotInfoVersion;
+    char ShotInfoFirmware [9];
+
+    unsigned BurstTable_0x0056_len;
+    uchar *BurstTable_0x0056;
+    ushort BurstTable_0x0056_ver;
+    ushort BurstTable_0x0056_gid;
+    uchar BurstTable_0x0056_fnum;
+
     short MakernotesFlip;
     double RollAngle;  // positive is clockwise, CW
     double PitchAngle; // positive is upwords
@@ -524,6 +533,10 @@ typedef unsigned long long UINT64;
   {
     char     CameraType2[6];
     ushort   ValidBits;
+	// decoder data
+	unsigned tagX640, tagX641, tagX642, tagX643, tagX644, tagX645, tagX646, tagX647,
+		tagX648, tagX649, tagX650, tagX651, tagX652, tagX653;
+	//
     int      SensorCalibration[2];
     ushort   DriveMode[5];
     ushort   ColorSpace;
@@ -579,6 +592,7 @@ typedef unsigned long long UINT64;
     int      AFPointsInFocus_version;
     unsigned AFPointsInFocus;
     ushort   FocusPosition;
+    uchar    DynamicRangeExpansion[4]; /* if (DynamicRangeExpansion[1] > 0) BLE+=DynamicRangeExpansion[0] */
     short    AFAdjustment;
     uchar    AFPointMode;
     uchar    MultiExposure; /* last bit is not "1" if ME is not used */
@@ -679,6 +693,9 @@ typedef unsigned long long UINT64;
     ushort   HDR[2];
     ushort   group2010;
     ushort   group9050;
+    
+    ushort   len_group9050; // currently, for debugging only
+    
     ushort   real_iso_offset;                 // init in 0xffff
     ushort   MeteringMode_offset;
     ushort   ExposureProgram_offset;
@@ -717,6 +734,11 @@ typedef unsigned long long UINT64;
                                1 for uncompressed;
                                2 lossless compressed raw v.2
                             */
+    ushort RawSizeType;     /* init in 0xffff
+                               1 - large,
+                               2 - small,
+                               3 - medium
+                            */
     unsigned Quality;       /* init in 0xffffffff
                                0 or 6 for raw, 7 or 8 for compressed raw */
     ushort FileFormat;      /*  1000 SR2
@@ -730,8 +752,11 @@ typedef unsigned long long UINT64;
                                 3330 ARW 2.3.3
                                 3350 ARW 2.3.5
                                 4000 ARW 4.0
+                                4010 ARW 4.0.1
+                                5000 ARW 5.0
                              */
     char MetaVersion [16];
+    float AspectRatio;
   } libraw_sony_info_t;
 
   typedef struct
@@ -756,7 +781,7 @@ typedef unsigned long long UINT64;
 // Sony
 // and aliases of the above
 // DNG
-    long linear_max[4];
+    unsigned linear_max[4];
 
     float fmaximum;
     float fnorm;
@@ -785,7 +810,7 @@ typedef unsigned long long UINT64;
     float WBCT_Coeffs[64][5]; /* CCT, than R, G1, B, G2 coeffs */
     int as_shot_wb_applied;
     libraw_P1_color_t P1_color[2];
-    unsigned raw_bps; /* for Phase One, raw format */
+    unsigned raw_bps; /* for Phase One: raw format; For other cameras: bits per pixel (copy of tiff_bps in most cases) */
                       /* Phase One raw format values, makernotes tag 0x010e:
                       0    Name unknown
                       1    "RAW 1"
@@ -808,6 +833,21 @@ typedef unsigned long long UINT64;
     int tcolors;
     char *thumb;
   } libraw_thumbnail_t;
+
+  typedef struct
+  {
+	enum LibRaw_internal_thumbnail_formats tformat;
+    ushort twidth, theight, tflip;
+    unsigned tlength;
+	unsigned tmisc;
+	INT64 toffset;
+  }libraw_thumbnail_item_t;
+
+  typedef struct
+  {
+	  int thumbcount;
+	  libraw_thumbnail_item_t thumblist[LIBRAW_THUMBNAIL_MAXCOUNT];
+  } libraw_thumbnail_list_t;
 
   typedef struct
   {
@@ -899,6 +939,7 @@ typedef unsigned long long UINT64;
     float adjust_maximum_thr;
     int no_auto_bright;    /* -W */
     int use_fuji_rotate;   /* -j */
+	int use_p1_correction;
     int green_matching;
     /* DCB parameters */
     int dcb_iterations;
@@ -909,7 +950,7 @@ typedef unsigned long long UINT64;
     float exp_preser;
     /* Disable Auto-scale */
     int no_auto_scale;
-    /* Disable interpolation */
+    /* Disable intepolation */
     int no_interpolation;
   } libraw_output_params_t;
 
@@ -1066,6 +1107,7 @@ typedef unsigned long long UINT64;
     libraw_colordata_t color;
     libraw_imgother_t other;
     libraw_thumbnail_t thumbnail;
+	libraw_thumbnail_list_t thumbs_list;
     libraw_rawdata_t rawdata;
     void *parent_class;
   } libraw_data_t;
@@ -1124,7 +1166,19 @@ private:
 
 
 /* Byte order */
-#if defined(__POWERPC__)
+#if defined(__LITTLE_ENDIAN__)
+#define LibRawBigEndian 0
+
+#elif defined(__BIG_ENDIAN__)
+#define LibRawBigEndian 1
+
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define LibRawBigEndian 0
+
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define LibRawBigEndian 1
+
+#elif defined(__POWERPC__)
 #define LibRawBigEndian 1
 
 #elif defined(__INTEL__)
@@ -1136,19 +1190,9 @@ private:
 #elif defined(_M_X64) || defined(__amd64__) || defined(__x86_64__)
 #define LibRawBigEndian 0
 
-#elif defined(__LITTLE_ENDIAN__)
-#define LibRawBigEndian 0
-
-#elif defined(__BIG_ENDIAN__)
-#define LibRawBigEndian 1
 #elif defined(_ARM_)
 #define LibRawBigEndian 0
 
-#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-#define LibRawBigEndian 0
-
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#define LibRawBigEndian 1
 #else
 #ifndef qXCodeRez
 #error Unable to figure out byte order.

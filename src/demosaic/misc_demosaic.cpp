@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -47,8 +47,8 @@ void LibRaw::pre_interpolate()
     }
     else
     {
-      img = (ushort(*)[4])calloc(height, width * sizeof *img);
-      merror(img, "pre_interpolate()");
+      int extra = filters ? (filters == 9 ? 6 : 2) : 0;
+      img = (ushort(*)[4])calloc((height+extra), (width+extra) * sizeof *img);
       for (row = 0; row < height; row++)
         for (col = 0; col < width; col++)
         {
@@ -154,7 +154,7 @@ void LibRaw::lin_interpolate()
           *ip++ = color;
           sum[color] += 1 << shift;
         }
-      code[(row * 16 + col) * 32] = (ip - (code + ((row * 16) + col) * 32)) / 3;
+      code[(row * 16 + col) * 32] = int((ip - (code + ((row * 16) + col) * 32)) / 3);
       FORCC
       if (c != f)
       {
@@ -221,7 +221,6 @@ void LibRaw::vng_interpolate()
   if (filters == 9)
     prow = pcol = 6;
   ip = (int *)calloc(prow * pcol, 1280);
-  merror(ip, "vng_interpolate()");
   for (row = 0; row < prow; row++) /* Precalculate for VNG */
     for (col = 0; col < pcol; col++)
     {
@@ -264,7 +263,6 @@ void LibRaw::vng_interpolate()
       }
     }
   brow[4] = (ushort(*)[4])calloc(width * 3, sizeof **brow);
-  merror(brow[4], "vng_interpolate()");
   for (row = 0; row < 3; row++)
     brow[row] = brow[4] + row * width;
   for (row = 2; row < height - 2; row++)

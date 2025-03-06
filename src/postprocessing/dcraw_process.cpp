@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw is free software; you can redistribute it and/or modify
  it under the terms of the one of two licenses as you choose:
@@ -33,6 +33,10 @@ int LibRaw::dcraw_process(void)
     if (~O.cropbox[2] && ~O.cropbox[3])
       no_crop = 0;
 
+	for(int c = 0; c < 4; c++)
+		if (O.aber[c]< 0.001 || O.aber[c] > 1000.f)
+			O.aber[c] = 1.0;
+
     libraw_decoder_info_t di;
     get_decoder_info(&di);
 
@@ -40,7 +44,9 @@ int LibRaw::dcraw_process(void)
     int subtract_inline =
         !O.bad_pixels && !O.dark_frame && is_bayer && !IO.zero_is_bad;
 
-    raw2image_ex(subtract_inline); // allocate imgdata.image and copy data!
+    int rc = raw2image_ex(subtract_inline); // allocate imgdata.image and copy data!
+	if (rc != LIBRAW_SUCCESS)
+		return rc;
 
     // Adjust sizes
 
@@ -91,11 +97,11 @@ int LibRaw::dcraw_process(void)
       if (load_raw == &LibRaw::x3f_load_raw)
       {
         // Filter out zeroes
-        for (int i = 0; i < S.height * S.width; i++)
+        for (int q = 0; q < S.height * S.width; q++)
         {
           for (int c = 0; c < 4; c++)
-            if ((short)imgdata.image[i][c] < 0)
-              imgdata.image[i][c] = 0;
+            if ((short)imgdata.image[q][c] < 0)
+              imgdata.image[q][c] = 0;
         }
       }
       SET_PROC_FLAG(LIBRAW_PROGRESS_FOVEON_INTERPOLATE);
@@ -144,7 +150,7 @@ int LibRaw::dcraw_process(void)
     /* post-exposure correction fallback */
     if (P1.filters && !O.no_interpolation)
     {
-      if (noiserd > 0 && P1.colors == 3 && P1.filters)
+      if (noiserd > 0 && P1.colors == 3 && P1.filters > 1000)
         fbdd(noiserd);
 
       if (P1.filters > 1000 && callbacks.interpolate_bayer_cb)
@@ -153,7 +159,7 @@ int LibRaw::dcraw_process(void)
         (callbacks.interpolate_xtrans_cb)(this);
       else if (quality == 0)
         lin_interpolate();
-      else if (quality == 1 || P1.colors > 3)
+      else if (quality == 1 || P1.colors > 3 || (P1.filters != LIBRAW_XTRANS && P1.filters <= 1000))
         vng_interpolate();
       else if (quality == 2 && P1.filters > 1000)
         ppg_interpolate();
@@ -216,10 +222,8 @@ int LibRaw::dcraw_process(void)
     if (!libraw_internal_data.output_data.histogram)
     {
       libraw_internal_data.output_data.histogram =
-          (int(*)[LIBRAW_HISTOGRAM_SIZE])malloc(
+          (int(*)[LIBRAW_HISTOGRAM_SIZE])calloc(1,
               sizeof(*libraw_internal_data.output_data.histogram) * 4);
-      merror(libraw_internal_data.output_data.histogram,
-             "LibRaw::dcraw_process()");
     }
 #ifndef NO_LCMS
     if (O.camera_profile)

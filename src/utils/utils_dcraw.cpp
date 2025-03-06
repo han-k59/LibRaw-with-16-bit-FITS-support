@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -102,8 +102,8 @@ void LibRaw::initdata()
   memset(white, 0, sizeof white);
   memset(mask, 0, sizeof mask);
   thumb_offset = thumb_length = thumb_width = thumb_height = 0;
-  load_raw = thumb_load_raw = 0;
-  write_thumb = &LibRaw::jpeg_thumb;
+  load_raw = 0;
+  thumb_format = LIBRAW_INTERNAL_THUMBNAIL_JPEG; // default to JPEG
   data_offset = meta_offset = meta_length = tiff_bps = tiff_compress = 0;
   kodak_cbpp = zero_after_ff = dng_version = load_flags = 0;
   timestamp = shot_order = tiff_samples = black = is_foveon = 0;
@@ -147,15 +147,15 @@ void LibRaw::aRGB_coeff(double aRGB_cam[3][3])
 void LibRaw::romm_coeff(float romm_cam[3][3])
 {
   static const float rgb_romm[3][3] = /* ROMM == Kodak ProPhoto */
-      {{2.034193, -0.727420, -0.306766},
-       {-0.228811, 1.231729, -0.002922},
-       {-0.008565, -0.153273, 1.161839}};
+      {{2.034193f, -0.727420f, -0.306766f},
+       {-0.228811f, 1.231729f, -0.002922f},
+       {-0.008565f, -0.153273f, 1.161839f}};
   int i, j, k;
 
   for (i = 0; i < 3; i++)
     for (j = 0; j < 3; j++)
-      for (cmatrix[i][j] = k = 0; k < 3; k++)
-        cmatrix[i][j] += rgb_romm[i][k] * romm_cam[k][j];
+      for (cmatrix[i][j] = 0.f, k = 0; k < 3; k++)
+        cmatrix[i][j] += float(rgb_romm[i][k] * romm_cam[k][j]);
 }
 
 void LibRaw::remove_zeroes()
@@ -297,7 +297,7 @@ void LibRaw::cam_xyz_coeff(float _rgb_cam[3][4], double cam_xyz[4][3])
     {
       for (j = 0; j < 3; j++)
         cam_rgb[i][j] /= num;
-      pre_mul[i] = 1 / num;
+      pre_mul[i] = float(1.0 / num);
     }
     else
     {
@@ -309,11 +309,11 @@ void LibRaw::cam_xyz_coeff(float _rgb_cam[3][4], double cam_xyz[4][3])
   pseudoinverse(cam_rgb, inverse, colors);
   for (i = 0; i < 3; i++)
     for (j = 0; j < colors && j < 4; j++)
-      _rgb_cam[i][j] = inverse[j][i];
+      _rgb_cam[i][j] = float(inverse[j][i]);
 }
 
-void LibRaw::tiff_get(unsigned base, unsigned *tag, unsigned *type,
-                      unsigned *len, unsigned *save)
+void LibRaw::tiff_get(INT64 base, unsigned *tag, unsigned *type,
+                      unsigned *len, INT64 *save)
 {
 #ifdef LIBRAW_IOSPACE_CHECK
   INT64 pos = ftell(ifp);
@@ -324,7 +324,7 @@ void LibRaw::tiff_get(unsigned base, unsigned *tag, unsigned *type,
   *tag = get2();
   *type = get2();
   *len = get4();
-  *save = ftell(ifp) + 4;
+  *save = ftell(ifp) + 4LL;
   if (*len * tagtype_dataunit_bytes[(*type <= LIBRAW_EXIFTAG_TYPE_IFD8) ? *type : 0] > 4)
-    fseek(ifp, get4() + base, SEEK_SET);
+    fseek(ifp, INT64(get4()) + base, SEEK_SET);
 }

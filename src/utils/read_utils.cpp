@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -172,5 +172,5 @@ void LibRaw::read_shorts(ushort *pixel, unsigned count)
   if ((unsigned)fread(pixel, 2, count, ifp) < count)
     derror();
   if ((order == 0x4949) == (ntohs(0x1234) == 0x1234))
-    swab((char *)pixel, (char *)pixel, count * 2);
+    libraw_swab(pixel, count * 2);
 }

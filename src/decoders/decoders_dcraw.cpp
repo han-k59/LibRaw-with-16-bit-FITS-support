@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -97,7 +97,6 @@ ushort *LibRaw::make_decoder_ref(const uchar **source)
   for (max = 16; max && !count[max]; max--)
     ;
   huff = (ushort *)calloc(1 + (1 << max), sizeof *huff);
-  merror(huff, "make_decoder()");
   huff[0] = max;
   for (h = len = 1; len <= max; len++)
     for (i = 0; i < count[len]; i++, ++*source)
@@ -349,7 +348,6 @@ int LibRaw::ljpeg_start(struct jhead *jh, int info_only)
     FORC(jh->sraw) jh->huff[1 + c] = jh->huff[0];
   }
   jh->row = (ushort *)calloc(jh->wide * jh->clrs, 16);
-  merror(jh->row, "ljpeg_start()");
   return zero_after_ff = 1;
 }
 
@@ -553,6 +551,10 @@ void LibRaw::lossless_jpeg_load_raw()
 
   if (jh.wide < 1 || jh.high < 1 || jh.clrs < 1 || jh.bits < 1)
     throw LIBRAW_EXCEPTION_IO_CORRUPT;
+
+  if(cr2_slice[0] && !cr2_slice[1])
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+
   jwide = jh.wide * jh.clrs;
   jhigh = jh.high;
   if (jh.clrs == 4 && jwide >= raw_width * 2)
@@ -575,6 +577,9 @@ void LibRaw::lossless_jpeg_load_raw()
           i = jidx / (cr2_slice[1] * raw_height);
           if ((j = i >= cr2_slice[0]))
             i = cr2_slice[0];
+		  if(!cr2_slice[1+j])
+            throw LIBRAW_EXCEPTION_IO_CORRUPT;
+
           jidx -= i * (cr2_slice[1] * raw_height);
           row = jidx / cr2_slice[1 + j];
           col = jidx % cr2_slice[1 + j] + i * cr2_slice[1];
@@ -607,9 +612,15 @@ void LibRaw::canon_sraw_load_raw()
   int saved_w = width, saved_h = height;
   char *cp;
 
+  if(!image)
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+
   if (!ljpeg_start(&jh, 0) || jh.clrs < 4)
     return;
   jwide = (jh.wide >>= 1) * jh.clrs;
+
+  if (jwide < 32 || jwide > 65535)
+	  throw LIBRAW_EXCEPTION_IO_CORRUPT;
 
   if (load_flags & 256)
   {
@@ -765,9 +776,9 @@ void LibRaw::ljpeg_idct(struct jhead *jh)
       63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63, 63};
 
   if (!cs[0])
-    FORC(106) cs[c] = cos((c & 31) * M_PI / 16) / 2;
+    FORC(106) cs[c] = float(cos((c & 31) * M_PI / 16) / 2);
   memset(work, 0, sizeof work);
-  work[0][0][0] = jh->vpred[0] += ljpeg_diff(jh->huff[0]) * jh->quant[0];
+  work[0][0][0] = float(jh->vpred[0] += ljpeg_diff(jh->huff[0]) * jh->quant[0]);
   for (i = 1; i < 64; i++)
   {
     len = gethuff(jh->huff[16]);
@@ -777,10 +788,10 @@ void LibRaw::ljpeg_idct(struct jhead *jh)
     coef = getbits(len);
     if ((coef & (1 << (len - 1))) == 0)
       coef -= (1 << len) - 1;
-    ((float *)work)[zigzag[i]] = coef * jh->quant[i];
+    ((float *)work)[zigzag[i]] =  float(coef * jh->quant[i]);
   }
-  FORC(8) work[0][0][c] *= M_SQRT1_2;
-  FORC(8) work[0][c][0] *= M_SQRT1_2;
+  FORC(8) work[0][0][c] *= float(M_SQRT1_2);
+  FORC(8) work[0][c][0] *= float(M_SQRT1_2);
   for (i = 0; i < 8; i++)
     for (j = 0; j < 8; j++)
       FORC(8) work[1][i][j] += work[0][i][c] * cs[(j * 2 + 1) * c];
@@ -958,11 +969,12 @@ void LibRaw::nikon_yuv_load_raw()
         FORC(6) bitbuf |= (UINT64)fgetc(ifp) << c * 8;
         FORC(4) yuv[c] = (bitbuf >> c * 12 & 0xfff) - (c >> 1 << 11);
       }
-      rgb[0] = yuv[b] + 1.370705 * yuv[3];
-      rgb[1] = yuv[b] - 0.337633 * yuv[2] - 0.698001 * yuv[3];
-      rgb[2] = yuv[b] + 1.732446 * yuv[2];
-      FORC3 image[row * width + col][c] =
-          curve[LIM(rgb[c], 0, 0xfff)] / cmul[c];
+      rgb[0] = int(yuv[b] + 1.370705f * yuv[3]);
+      rgb[1] = int(yuv[b] - 0.337633f * yuv[2] - 0.698001f * yuv[3]);
+      rgb[2] = int(yuv[b] + 1.732446f * yuv[2]);
+      FORC3 image[row * width + col][c] = 
+		  ushort(
+			curve[LIM(rgb[c], 0, 0xfff)] / cmul[c]);
     }
   }
 }
@@ -1011,7 +1023,7 @@ void LibRaw::nokia_load_raw()
   if (raw_stride)
 	  dwide = raw_stride;
 #endif
-  std::vector<uchar> data(dwide * 2);
+  std::vector<uchar> data(dwide * 2 + 4,0);
   for (row = 0; row < raw_height; row++)
   {
       checkCancel();
@@ -1040,39 +1052,6 @@ void LibRaw::nokia_load_raw()
     filters = 0x4b4b4b4b;
 }
 
-#ifdef LIBRAW_OLD_VIDEO_SUPPORT
-
-void LibRaw::canon_rmf_load_raw()
-{
-  int row, col, bits, orow, ocol, c;
-
-  int *words = (int *)malloc(sizeof(int) * (raw_width / 3 + 1));
-  merror(words, "canon_rmf_load_raw");
-  for (row = 0; row < raw_height; row++)
-  {
-    checkCancel();
-    fread(words, sizeof(int), raw_width / 3, ifp);
-    for (col = 0; col < raw_width - 2; col += 3)
-    {
-      bits = words[col / 3];
-      FORC3
-      {
-        orow = row;
-        if ((ocol = col + c - 4) < 0)
-        {
-          ocol += raw_width;
-          if ((orow -= 2) < 0)
-            orow += raw_height;
-        }
-        RAW(orow, ocol) = curve[bits >> (10 * c + 2) & 0x3ff];
-      }
-    }
-  }
-  free(words);
-  maximum = curve[0x3ff];
-}
-#endif
-
 unsigned LibRaw::pana_data(int nb, unsigned *bytes)
 {
 #ifndef LIBRAW_NOTHREADS
@@ -1085,11 +1064,17 @@ unsigned LibRaw::pana_data(int nb, unsigned *bytes)
   int byte;
 
   if (!nb && !bytes)
-    return vpos = 0;
+  {
+	  memset(buf, 0, sizeof(buf));
+	  return vpos = 0;
+  }
+  if (load_flags > 0x4000)
+	  throw LIBRAW_EXCEPTION_IO_BADFILE;
 
   if (!vpos)
   {
-    fread(buf + load_flags, 1, 0x4000 - load_flags, ifp);
+	if(load_flags < 0x4000)
+		fread(buf + load_flags, 1, 0x4000 - load_flags, ifp);
     fread(buf, 1, load_flags, ifp);
   }
 
@@ -1169,6 +1154,8 @@ void LibRaw::panasonic_load_raw()
   }
   else
   {
+	if (load_flags >= 0x4000)
+	  throw LIBRAW_EXCEPTION_IO_CORRUPT;
     for (row = 0; row < raw_height; row++)
     {
       checkCancel();
@@ -1193,64 +1180,6 @@ void LibRaw::panasonic_load_raw()
             row < height)
           derror();
       }
-    }
-  }
-}
-
-void LibRaw::olympus_load_raw()
-{
-  ushort huff[4096];
-  int row, col, nbits, sign, low, high, i, c, w, n, nw;
-  int acarry[2][3], *carry, pred, diff;
-
-  huff[n = 0] = 0xc0c;
-  for (i = 12; i--;)
-    FORC(2048 >> i) huff[++n] = (i + 1) << 8 | i;
-  fseek(ifp, 7, SEEK_CUR);
-  getbits(-1);
-  for (row = 0; row < height; row++)
-  {
-    checkCancel();
-    memset(acarry, 0, sizeof acarry);
-    for (col = 0; col < raw_width; col++)
-    {
-      carry = acarry[col & 1];
-      i = 2 * (carry[2] < 3);
-      for (nbits = 2 + i; (ushort)carry[0] >> (nbits + i); nbits++)
-        ;
-      low = (sign = getbits(3)) & 3;
-      sign = sign << 29 >> 31;
-      if ((high = getbithuff(12, huff)) == 12)
-        high = getbits(16 - nbits) >> 1;
-      carry[0] = (high << nbits) | getbits(nbits);
-      diff = (carry[0] ^ sign) + carry[1];
-      carry[1] = (diff * 3 + carry[1]) >> 5;
-      carry[2] = carry[0] > 16 ? 0 : carry[2] + 1;
-      if (col >= width)
-        continue;
-      if (row < 2 && col < 2)
-        pred = 0;
-      else if (row < 2)
-        pred = RAW(row, col - 2);
-      else if (col < 2)
-        pred = RAW(row - 2, col);
-      else
-      {
-        w = RAW(row, col - 2);
-        n = RAW(row - 2, col);
-        nw = RAW(row - 2, col - 2);
-        if ((w < nw && nw < n) || (n < nw && nw < w))
-        {
-          if (ABS(w - nw) > 32 || ABS(n - nw) > 32)
-            pred = w + n - nw;
-          else
-            pred = (w + n) >> 1;
-        }
-        else
-          pred = ABS(w - nw) > ABS(n - nw) ? w : n;
-      }
-      if ((RAW(row, col) = pred + ((diff << 2) | low)) >> 12)
-        derror();
     }
   }
 }
@@ -1426,7 +1355,7 @@ void LibRaw::sony_load_raw()
 
 void LibRaw::sony_arw_load_raw()
 {
-  std::vector<ushort> huff_buffer(32770);
+  std::vector<ushort> huff_buffer(32770,0);
   ushort* huff = &huff_buffer[0];
   static const ushort tab[18] = {0xf11, 0xf10, 0xe0f, 0xd0e, 0xc0d, 0xb0c,
                                  0xa0b, 0x90a, 0x809, 0x708, 0x607, 0x506,
@@ -1458,8 +1387,7 @@ void LibRaw::sony_arw2_load_raw()
   ushort pix[16];
   int row, col, val, max, min, imax, imin, sh, bit, i;
 
-  data = (uchar *)malloc(raw_width + 1);
-  merror(data, "sony_arw2_load_raw()");
+  data = (uchar *)calloc(raw_width + 1,1);
   try
   {
     for (row = 0; row < height; row++)
@@ -1717,85 +1645,3 @@ void LibRaw::samsung3_load_raw()
   }
 }
 
-#ifdef LIBRAW_OLD_VIDEO_SUPPORT
-void LibRaw::redcine_load_raw()
-{
-#ifndef NO_JASPER
-  int c, row, col;
-  jas_stream_t *in;
-  jas_image_t *jimg;
-  jas_matrix_t *jmat;
-  jas_seqent_t *data;
-  ushort *img, *pix;
-
-  jas_init();
-  in = (jas_stream_t *)ifp->make_jas_stream();
-  if (!in)
-    throw LIBRAW_EXCEPTION_DECODE_JPEG2000;
-  jas_stream_seek(in, data_offset + 20, SEEK_SET);
-  jimg = jas_image_decode(in, -1, 0);
-  if (!jimg)
-  {
-    jas_stream_close(in);
-    throw LIBRAW_EXCEPTION_DECODE_JPEG2000;
-  }
-  jmat = jas_matrix_create(height / 2, width / 2);
-  merror(jmat, "redcine_load_raw()");
-  img = (ushort *)calloc((height + 2), (width + 2) * 2);
-  merror(img, "redcine_load_raw()");
-  bool fastexitflag = false;
-  try
-  {
-    FORC4
-    {
-      checkCancel();
-      jas_image_readcmpt(jimg, c, 0, 0, width / 2, height / 2, jmat);
-      data = jas_matrix_getref(jmat, 0, 0);
-      for (row = c >> 1; row < height; row += 2)
-        for (col = c & 1; col < width; col += 2)
-          img[(row + 1) * (width + 2) + col + 1] =
-              data[(row / 2) * (width / 2) + col / 2];
-    }
-    for (col = 1; col <= width; col++)
-    {
-      img[col] = img[2 * (width + 2) + col];
-      img[(height + 1) * (width + 2) + col] =
-          img[(height - 1) * (width + 2) + col];
-    }
-    for (row = 0; row < height + 2; row++)
-    {
-      img[row * (width + 2)] = img[row * (width + 2) + 2];
-      img[(row + 1) * (width + 2) - 1] = img[(row + 1) * (width + 2) - 3];
-    }
-    for (row = 1; row <= height; row++)
-    {
-      checkCancel();
-      pix = img + row * (width + 2) + (col = 1 + (FC(row, 1) & 1));
-      for (; col <= width; col += 2, pix += 2)
-      {
-        c = (((pix[0] - 0x800) << 3) + pix[-(width + 2)] + pix[width + 2] +
-             pix[-1] + pix[1]) >>
-            2;
-        pix[0] = LIM(c, 0, 4095);
-      }
-    }
-    for (row = 0; row < height; row++)
-    {
-      checkCancel();
-      for (col = 0; col < width; col++)
-        RAW(row, col) = curve[img[(row + 1) * (width + 2) + col + 1]];
-    }
-  }
-  catch (...)
-  {
-    fastexitflag = true;
-  }
-  free(img);
-  jas_matrix_destroy(jmat);
-  jas_image_destroy(jimg);
-  jas_stream_close(in);
-  if (fastexitflag)
-    throw LIBRAW_EXCEPTION_CANCELLED_BY_CALLBACK;
-#endif
-}
-#endif

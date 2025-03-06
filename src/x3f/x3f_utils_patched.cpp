@@ -391,7 +391,7 @@ static x3f_huffman_t *new_huffman(x3f_huffman_t **HUFP)
     {
       x3f_directory_entry_t *DE = &DS->directory_entry[d];
       x3f_directory_entry_header_t *DEH = &DE->header;
-      uint32_t save_dir_pos;
+      INT64 save_dir_pos;
 
       /* Read the directory entry info */
       GET4(DE->input.offset);
@@ -994,7 +994,7 @@ static void true_decode_one_color(x3f_image_data_t *ID, int color)
   }
 }
 
-static void true_decode(x3f_info_t *I, x3f_directory_entry_t *DE)
+static void true_decode(x3f_info_t * /*I*/, x3f_directory_entry_t *DE)
 {
   x3f_directory_entry_header_t *DEH = &DE->header;
   x3f_image_data_t *ID = &DEH->data_subsection.image_data;
@@ -1023,7 +1023,7 @@ static int32_t get_huffman_diff(bit_state_t *BS, x3f_hufftree_t *HTP)
     {
       /* TODO: Shouldn't this be treated as a fatal error? */
       throw LIBRAW_EXCEPTION_IO_CORRUPT;
-      return 0;
+      return 0; /* unreachable code */
     }
   }
 
@@ -1032,8 +1032,8 @@ static int32_t get_huffman_diff(bit_state_t *BS, x3f_hufftree_t *HTP)
   return diff;
 }
 
-static void huffman_decode_row(x3f_info_t *I, x3f_directory_entry_t *DE,
-                               int bits, int row, int offset, int *minimum)
+static void huffman_decode_row(x3f_info_t * /*I*/, x3f_directory_entry_t *DE,
+                               int /*bits*/, int row, int offset, int *minimum)
 {
   x3f_directory_entry_header_t *DEH = &DE->header;
   x3f_image_data_t *ID = &DEH->data_subsection.image_data;
@@ -1113,7 +1113,7 @@ static int32_t get_simple_diff(x3f_huffman_t *HUF, uint16_t index)
     return HUF->mapping.element[index];
 }
 
-static void simple_decode_row(x3f_info_t *I, x3f_directory_entry_t *DE,
+static void simple_decode_row(x3f_info_t * /*I*/, x3f_directory_entry_t *DE,
                               int bits, int row, int row_stride)
 {
   x3f_directory_entry_header_t *DEH = &DE->header;
@@ -1174,7 +1174,7 @@ static void simple_decode_row(x3f_info_t *I, x3f_directory_entry_t *DE,
       case X3F_IMAGE_THUMB_HUFFMAN:
         c_fix = (int8_t)c[color] > 0 ? c[color] : 0;
 
-        HUF->rgb8.data[3 * (row * ID->columns + col) + color] = c_fix;
+        HUF->rgb8.data[3 * (row * ID->columns + col) + color] = uint8_t(c_fix);
         break;
       default:
         /* TODO: Shouldn't this be treated as a fatal error? */
@@ -1215,7 +1215,7 @@ static void read_data_set_offset(x3f_info_t *I, x3f_directory_entry_t *DE,
 static uint32_t read_data_block(void **data, x3f_info_t *I,
                                 x3f_directory_entry_t *DE, uint32_t footer)
 {
-  INT64 fpos = I->input.file->tell();
+  uint32_t fpos = (I->input.file->tell() & 0x7fffffffU) ;
   uint32_t size = DE->input.size + DE->input.offset - fpos - footer;
 
   if (fpos + size > I->input.file->size())
@@ -1228,11 +1228,12 @@ static uint32_t read_data_block(void **data, x3f_info_t *I,
   return size;
 }
 
-static uint32_t data_block_size(void **data, x3f_info_t *I,
+static uint32_t data_block_size(void ** /*data*/, x3f_info_t *I,
                                 x3f_directory_entry_t *DE, uint32_t footer)
 {
+  uint32_t fpos = (I->input.file->tell() & 0x7fffffffU);
   uint32_t size =
-      DE->input.size + DE->input.offset - I->input.file->tell() - footer;
+      DE->input.size + DE->input.offset - fpos - footer;
   return size;
 }
 
@@ -1394,7 +1395,7 @@ static void x3f_load_true(x3f_info_t *I, x3f_directory_entry_t *DE)
 
 static void x3f_load_huffman_compressed(x3f_info_t *I,
                                         x3f_directory_entry_t *DE, int bits,
-                                        int use_map_table)
+                                        int /*use_map_table*/)
 {
   x3f_directory_entry_header_t *DEH = &DE->header;
   x3f_image_data_t *ID = &DEH->data_subsection.image_data;
@@ -1417,7 +1418,7 @@ static void x3f_load_huffman_compressed(x3f_info_t *I,
 
 static void x3f_load_huffman_not_compressed(x3f_info_t *I,
                                             x3f_directory_entry_t *DE, int bits,
-                                            int use_map_table, int row_stride)
+                                            int /*use_map_table*/, int row_stride)
 {
   x3f_directory_entry_header_t *DEH = &DE->header;
   x3f_image_data_t *ID = &DEH->data_subsection.image_data;
@@ -1481,7 +1482,7 @@ static void x3f_load_pixmap(x3f_info_t *I, x3f_directory_entry_t *DE)
   x3f_load_image_verbatim(I, DE);
 }
 
-static uint32_t x3f_load_pixmap_size(x3f_info_t *I, x3f_directory_entry_t *DE)
+static int32_t x3f_load_pixmap_size(x3f_info_t *I, x3f_directory_entry_t *DE)
 {
   return x3f_load_image_verbatim_size(I, DE);
 }
@@ -1491,7 +1492,7 @@ static void x3f_load_jpeg(x3f_info_t *I, x3f_directory_entry_t *DE)
   x3f_load_image_verbatim(I, DE);
 }
 
-static uint32_t x3f_load_jpeg_size(x3f_info_t *I, x3f_directory_entry_t *DE)
+static int32_t x3f_load_jpeg_size(x3f_info_t *I, x3f_directory_entry_t *DE)
 {
   return x3f_load_image_verbatim_size(I, DE);
 }
@@ -1536,7 +1537,7 @@ static void x3f_load_image(x3f_info_t *I, x3f_directory_entry_t *DE)
 }
 
 // Used only for thumbnail size estimation
-static uint32_t x3f_load_image_size(x3f_info_t *I, x3f_directory_entry_t *DE)
+static int32_t x3f_load_image_size(x3f_info_t *I, x3f_directory_entry_t *DE)
 {
   x3f_directory_entry_header_t *DEH = &DE->header;
   x3f_image_data_t *ID = &DEH->data_subsection.image_data;
@@ -1977,7 +1978,7 @@ static void x3f_setup_camf_entries(x3f_camf_t *CAMF)
     entry[i].name_offset = *p4++;
     entry[i].value_offset = *p4++;
 
-    /* Compute adresses and sizes */
+    /* Compute addresses and sizes */
     entry[i].name_address = (char *)(p + entry[i].name_offset);
     entry[i].value_address = p + entry[i].value_offset;
     entry[i].name_size = entry[i].value_offset - entry[i].name_offset;
@@ -2074,7 +2075,7 @@ static void x3f_load_camf(x3f_info_t *I, x3f_directory_entry_t *DE)
   return X3F_OK;
 }
 
-/* extern */ int64_t x3f_load_data_size(x3f_t *x3f, x3f_directory_entry_t *DE)
+/* extern */ int32_t x3f_load_data_size(x3f_t *x3f, x3f_directory_entry_t *DE)
 {
   x3f_info_t *I = &x3f->info;
 
@@ -2106,7 +2107,7 @@ static void x3f_load_camf(x3f_info_t *I, x3f_directory_entry_t *DE)
     break;
   default:
     throw LIBRAW_EXCEPTION_IO_CORRUPT;
-    return X3F_INTERNAL_ERROR;
+    return X3F_INTERNAL_ERROR; /* unreachable code*/
   }
 
   return X3F_OK;

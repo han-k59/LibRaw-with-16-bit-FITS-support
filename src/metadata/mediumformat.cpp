@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2021 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -18,7 +18,7 @@
 
 #include "../../internal/dcraw_defs.h"
 
-void LibRaw::parse_phase_one(int base)
+void LibRaw::parse_phase_one(INT64 base)
 {
   unsigned entries, tag, type, len, data, i, c;
   INT64 save;
@@ -43,105 +43,32 @@ void LibRaw::parse_phase_one(int base)
     tag = get4();
     type = get4();
     len = get4();
+	if (feof(ifp))
+		break;
     data = get4();
     save = ftell(ifp);
-    fseek(ifp, base + data, SEEK_SET);
+	bool do_seek = (tag < 0x0108 || tag > 0x0110); // to make it single rule, not copy-paste
+	if(do_seek)
+		fseek(ifp, base + data, SEEK_SET);
     switch (tag)
     {
 
-    case 0x0102:
-      stmread(imgdata.shootinginfo.BodySerial, len, ifp);
-      if ((imgdata.shootinginfo.BodySerial[0] == 0x4c) &&
-          (imgdata.shootinginfo.BodySerial[1] == 0x49))
-      {
-        unique_id = (((imgdata.shootinginfo.BodySerial[0] & 0x3f) << 5) |
-                     (imgdata.shootinginfo.BodySerial[2] & 0x3f)) -
-                    0x41;
-      }
-      else
-      {
-        unique_id = (((imgdata.shootinginfo.BodySerial[0] & 0x3f) << 5) |
-                     (imgdata.shootinginfo.BodySerial[1] & 0x3f)) -
-                    0x41;
-      }
-      setPhaseOneFeatures(unique_id);
-      break;
-    case 0x0203:
-      stmread(imPhaseOne.Software, len, ifp);
-    case 0x0204:
-      stmread(imPhaseOne.SystemType, len, ifp);
-    case 0x0211:
-      imCommon.SensorTemperature2 = int_to_float(data);
-      break;
-    case 0x0401:
-      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
-        ilm.CurAp = libraw_powf64l(2.0f, (int_to_float(data) / 2.0f));
-      else
-        ilm.CurAp = libraw_powf64l(2.0f, float(getreal(type) / 2.0f));
-      break;
-    case 0x0403:
-      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
-        ilm.CurFocal = int_to_float(data);
-      else
-        ilm.CurFocal = (float)getreal(type);
-      break;
-    case 0x0410:
-      stmread(ilm.body, len, ifp);
-      if (((unsigned char)ilm.body[0]) == 0xff)
-        ilm.body[0] = 0;
-      break;
-    case 0x0412:
-      stmread(ilm.Lens, len, ifp);
-      if (((unsigned char)ilm.Lens[0]) == 0xff)
-        ilm.Lens[0] = 0;
-      break;
-    case 0x0414:
-      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
-      {
-        ilm.MaxAp4CurFocal = libraw_powf64l(2.0f, (int_to_float(data) / 2.0f));
-      }
-      else
-      {
-        ilm.MaxAp4CurFocal = libraw_powf64l(2.0f, float(getreal(type) / 2.0f));
-      }
-      break;
-    case 0x0415:
-      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
-      {
-        ilm.MinAp4CurFocal = libraw_powf64l(2.0f, (int_to_float(data) / 2.0f));
-      }
-      else
-      {
-        ilm.MinAp4CurFocal = libraw_powf64l(2.0f, float(getreal(type) / 2.0f));
-      }
-      break;
-    case 0x0416:
-      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
-      {
-        ilm.MinFocal = int_to_float(data);
-      }
-      else
-      {
-        ilm.MinFocal = (float)getreal(type);
-      }
-      if (ilm.MinFocal > 1000.0f)
-      {
-        ilm.MinFocal = 0.0f;
-      }
-      break;
-    case 0x0417:
-      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
-      {
-        ilm.MaxFocal = int_to_float(data);
-      }
-      else
-      {
-        ilm.MaxFocal = (float)getreal(type);
-      }
-      break;
-
     case 0x0100:
       flip = "0653"[data & 3] - '0';
+      break;
+    case 0x0102:
+      stmread(imgdata.shootinginfo.BodySerial, len, ifp);
+      if ((imgdata.shootinginfo.BodySerial[0] == 0x4c) && (imgdata.shootinginfo.BodySerial[1] == 0x49))
+      {
+        unique_id =
+            (((imgdata.shootinginfo.BodySerial[0] & 0x3f) << 5) | (imgdata.shootinginfo.BodySerial[2] & 0x3f)) - 0x41;
+      }
+      else
+      {
+        unique_id =
+            (((imgdata.shootinginfo.BodySerial[0] & 0x3f) << 5) | (imgdata.shootinginfo.BodySerial[1] & 0x3f)) - 0x41;
+      }
+      setPhaseOneFeatures(unique_id);
       break;
     case 0x0106:
       for (i = 0; i < 9; i++)
@@ -175,6 +102,7 @@ void LibRaw::parse_phase_one(int base)
       break;
     case 0x010f:
       data_offset = data + base;
+	  data_size = len;
       break;
     case 0x0110:
       meta_offset = data + base;
@@ -183,9 +111,16 @@ void LibRaw::parse_phase_one(int base)
     case 0x0112:
       ph1.key_off = int(save - 4);
       break;
+    case 0x0203:
+      stmread(imPhaseOne.Software, len, ifp);
+    case 0x0204:
+      stmread(imPhaseOne.SystemType, len, ifp);
     case 0x0210:
       ph1.tag_210 = int_to_float(data);
       imCommon.SensorTemperature = ph1.tag_210;
+      break;
+    case 0x0211:
+      imCommon.SensorTemperature2 = int_to_float(data);
       break;
     case 0x021a:
       ph1.tag_21a = data;
@@ -200,13 +135,13 @@ void LibRaw::parse_phase_one(int base)
       ph1.split_col = data;
       break;
     case 0x0223:
-      ph1.black_col = data + base;
+      ph1.black_col = int(data + base);
       break;
     case 0x0224:
       ph1.split_row = data;
       break;
     case 0x0225:
-      ph1.black_row = data + base;
+      ph1.black_row = int(data + base);
       break;
     case 0x0226:
       for (i = 0; i < 9; i++)
@@ -214,9 +149,10 @@ void LibRaw::parse_phase_one(int base)
       break;
     case 0x0301:
       model[63] = 0;
-      imPhaseOne.FirmwareString[255] = 0;
       fread(imPhaseOne.FirmwareString, 1, 255, ifp);
+      imPhaseOne.FirmwareString[255] = 0;
       memcpy(model, imPhaseOne.FirmwareString, 63);
+	  model[63] = 0;
       if ((cp = strstr(model, " camera")))
         *cp = 0;
       else if ((cp = strchr(model, ',')))
@@ -253,8 +189,75 @@ void LibRaw::parse_phase_one(int base)
         }
         *cp = 0;
       }
+    case 0x0401:
+      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
+        ilm.CurAp = libraw_powf64l(2.0f, (int_to_float(data) / 2.0f));
+      else
+        ilm.CurAp = libraw_powf64l(2.0f, getrealf(type) / 2.0f);
+      break;
+    case 0x0403:
+      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
+        ilm.CurFocal = int_to_float(data);
+      else
+        ilm.CurFocal = (float)getreal(type);
+      break;
+    case 0x0410:
+      stmread(ilm.body, len, ifp);
+      if (((unsigned char)ilm.body[0]) == 0xff)
+        ilm.body[0] = 0;
+      break;
+    case 0x0412:
+      stmread(ilm.Lens, len, ifp);
+      if (((unsigned char)ilm.Lens[0]) == 0xff)
+        ilm.Lens[0] = 0;
+      break;
+    case 0x0414:
+      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
+      {
+        ilm.MaxAp4CurFocal = libraw_powf64l(2.0f, (int_to_float(data) / 2.0f));
+      }
+      else
+      {
+        ilm.MaxAp4CurFocal = libraw_powf64l(2.0f, getrealf(type) / 2.0f);
+      }
+      break;
+    case 0x0415:
+      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
+      {
+        ilm.MinAp4CurFocal = libraw_powf64l(2.0f, (int_to_float(data) / 2.0f));
+      }
+      else
+      {
+        ilm.MinAp4CurFocal = libraw_powf64l(2.0f, getrealf(type) / 2.0f);
+      }
+      break;
+    case 0x0416:
+      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
+      {
+        ilm.MinFocal = int_to_float(data);
+      }
+      else
+      {
+        ilm.MinFocal = (float)getreal(type);
+      }
+      if (ilm.MinFocal > 1000.0f)
+      {
+        ilm.MinFocal = 0.0f;
+      }
+      break;
+    case 0x0417:
+      if (tagtypeIs(LIBRAW_EXIFTAG_TYPE_LONG))
+      {
+        ilm.MaxFocal = int_to_float(data);
+      }
+      else
+      {
+        ilm.MaxFocal = (float)getreal(type);
+      }
+      break;
     }
-    fseek(ifp, save, SEEK_SET);
+    if (do_seek)
+      fseek(ifp, save, SEEK_SET);
   }
 
   if (!ilm.body[0] && !imgdata.shootinginfo.BodySerial[0])
@@ -264,11 +267,15 @@ void LibRaw::parse_phase_one(int base)
     fseek(ifp, 6, SEEK_CUR);
     fseek(ifp, meta_offset + get4(), SEEK_SET);
     entries = get4();
+    if (entries > 8192)
+      return; // too much??
     get4();
     while (entries--)
     {
       tag = get4();
       len = get4();
+	  if (feof(ifp))
+		  break;
       data = get4();
       save = ftell(ifp);
       fseek(ifp, meta_offset + data, SEEK_SET);
@@ -301,9 +308,11 @@ void LibRaw::parse_phase_one(int base)
     ilm.MinAp4CurFocal = MinAp4CurFocal;
   }
 
-  load_raw = ph1.format < 3 ? &LibRaw::phase_one_load_raw
-                            : &LibRaw::phase_one_load_raw_c;
-  maximum = 0xffff;
+  if (ph1.format == 6)
+	  load_raw = &LibRaw::phase_one_load_raw_s;
+  else
+    load_raw = ph1.format < 3 ? &LibRaw::phase_one_load_raw : &LibRaw::phase_one_load_raw_c;
+  maximum = 0xffff; // Always scaled to 16bit?
   strcpy(make, "Phase One");
   if (model[0])
     return;
@@ -425,20 +434,21 @@ void LibRaw::parse_mos(INT64 offset)
     if (!strcmp(data, "back_serial_number"))
     {
       char buffer[sizeof(imgdata.shootinginfo.BodySerial)];
-      char *words[4];
+      char *words[4] = {0, 0, 0, 0};
       stmread(buffer, (unsigned)skip, ifp);
       /*nwords = */
           getwords(buffer, words, 4, sizeof(imgdata.shootinginfo.BodySerial));
-      strcpy(imgdata.shootinginfo.BodySerial, words[0]);
+	  if(words[0])
+		strcpy(imgdata.shootinginfo.BodySerial, words[0]);
     }
     if (!strcmp(data, "CaptProf_serial_number"))
     {
       char buffer[sizeof(imgdata.shootinginfo.InternalBodySerial)];
-      char *words[4];
+      char *words[4] = {0, 0, 0, 0};
       stmread(buffer, (unsigned)skip, ifp);
-      /*nwords =*/ getwords(buffer, words, 4,
-                        sizeof(imgdata.shootinginfo.InternalBodySerial));
-      strcpy(imgdata.shootinginfo.InternalBodySerial, words[0]);
+      getwords(buffer, words, 4, sizeof(imgdata.shootinginfo.InternalBodySerial));
+	  if(words[0])
+		strcpy(imgdata.shootinginfo.InternalBodySerial, words[0]);
     }
 
     if (!strcmp(data, "JPEG_preview_data"))
