@@ -1,5 +1,5 @@
 /* -*- C++ -*-
- * Copyright 2019-2024 LibRaw LLC (info@libraw.org)
+ * Copyright 2019-2025 LibRaw LLC (info@libraw.org)
  *
  LibRaw uses code from dcraw.c -- Dave Coffin's raw photo decoder,
  dcraw.c is copyright 1997-2018 by Dave Coffin, dcoffin a cybercom o net.
@@ -40,14 +40,15 @@ void LibRaw::wavelet_denoise()
                                 0.0291f, 0.0152f, 0.0080f, 0.0044f};
 
   if (iwidth < 65 || iheight < 65) return;
+  if (int64_t(iwidth) * int64_t(iheight) >= 0x15540000LL) return; // ensure pixel count less then 358M so total allocation size is less then 4GB
 
   while (maximum << scale < 0x10000)
     scale++;
   maximum <<= --scale;
   black <<= scale;
   FORC4 cblack[c] <<= scale;
-  if ((size = iheight * iwidth) < 0x15550000)
-    fimg = (float *)malloc((size * 3 + iheight + iwidth + 128) * sizeof *fimg);
+  size = iheight * iwidth;
+  fimg = (float *)malloc((size * 3 + iheight + iwidth + 128) * sizeof *fimg);
   temp = fimg + size * 3;
   if ((nc = colors) == 3 && filters)
     nc++;
