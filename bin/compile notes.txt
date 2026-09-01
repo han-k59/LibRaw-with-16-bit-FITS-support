@@ -43,11 +43,9 @@ Use instructions below or the build_all_unprocessed_raw.sh in Linux
        Mac cross compile from X86_64 to silicon (M types ) processor
 
        git clone https://github.com/han-k59/LibRaw-with-16-bit-FITS-support
-       or 
-       make clean -f Makefile.mingw # to clean up 
 
 
        cd LibRaw-with-16-bit-FITS-support
+       make clean -f Makefile.dist_m1 # to clean up 
        export LDADD=-mmacosx-version-min=10.10
-       make -f Makefile.dist-m1
-
+       make -f Makefile.dist_m1
