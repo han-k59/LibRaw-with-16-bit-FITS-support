@@ -225,5 +225,5 @@ zip -j "unprocessed_raw linux amd64.zip" ./out/linux-x86_64/*
 zip -j "unprocessed_raw linux i386.zip" ./out/linux-x86_32/*
 zip -j "unprocessed_raw linux aarch64.zip" ./out/aarch64/*
 zip -j "unprocessed_raw linux armhf.zip" ./out/armhf/*
-zip -j "unprocessed_raw linux win32.zip" ./out/win32/*
-zip -j "unprocessed_raw linux win64.zip" ./out/win64/*
+zip -j "unprocessed_raw win32.zip" ./out/win32/*
+zip -j "unprocessed_raw win64.zip" ./out/win64/*
