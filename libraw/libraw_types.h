@@ -884,9 +884,6 @@ typedef unsigned long long UINT64;
     float aperture;
     float focal_len;
     time_t timestamp;
-    float timestamp_subsec; /* fraction of a second [0.0, 1.0) parsed from
-                                EXIF SubSecTimeOriginal/SubSecTimeDigitized/
-                                SubSecTime; 0.0 if the tag is not present */
     unsigned shot_order;
     unsigned gpsdata[32];
     libraw_gps_info_t parsed_gps;

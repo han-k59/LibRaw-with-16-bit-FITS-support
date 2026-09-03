@@ -202,32 +202,6 @@ void LibRaw::parse_exif(INT64 base)
       break;
     case 0x9290: // 37520, SubSecTime
     case 0x9291: // 37521, SubSecTimeOriginal
-      {
-      char subsec[16];
-      memset(subsec, 0, sizeof(subsec));
-      stmread(subsec, len, ifp);
-
-      // EXIF SubSecTimeOriginal is an ASCII string containing the fractional
-      // part of a second with an implied leading "0.".
-      //
-      // Examples:
-      //   "6"    -> 0.6 s
-      //   "62"   -> 0.62 s
-      //   "4375" -> 0.4375 s
-      //
-      // Store it as a normalized floating-point fraction so it can be added
-      // directly to the Unix timestamp for JD and DATE-OBS calculations.
-      if (subsec[0] >= '0' && subsec[0] <= '9')
-      {
-          double denom = 1.0;
-          for (char *p = subsec; *p; p++)
-              denom *= 10.0;
-
-          long value = strtol(subsec, nullptr, 10);
-          imgdata.other.timestamp_subsec = (float)(value / denom);
-      }
-      }
-      break;
     case 0x9292: // 37522, SubSecTimeDigitized
     case 0x9201: // 37377
        if ((expo = -getreal(type)) < 128 && shutter == 0.)
